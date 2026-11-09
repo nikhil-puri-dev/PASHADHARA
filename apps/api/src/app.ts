@@ -1,0 +1,22 @@
+import type { Database } from '../../../packages/kernel/src/db.ts';
+import { createRoutes, type Authenticate, type Contract, type RouteHandler } from './routes.ts';
+import { readHandlers } from './read-handlers.ts';
+import { createMcp, unavailableKernelMeter, registeredTools } from './mcp.ts';
+import { webhookHandler, type WebhookDependencies } from './webhook.ts';
+
+/** Authentication callbacks must enforce lease and seller ownership, including body identifiers. */
+export function createApp(options: {
+  contract: Contract;
+  db: Database;
+  authenticate: Authenticate;
+  resolveMcpLease: (request: Request) => Promise<string | null>;
+  handlers?: Record<string, RouteHandler>;
+  webhook?: WebhookDependencies;
+}) {
+  const handlers = { ...readHandlers(options.db), ...options.handlers };
+  if (options.webhook) handlers.receivePayPalWebhook = webhookHandler(options.webhook);
+  const app = createRoutes(options.contract, handlers, options.authenticate);
+  app.route('/', createMcp(unavailableKernelMeter, options.resolveMcpLease, registeredTools(options.db)));
+  app.onError((_error, c) => c.json({ status: 'unavailable' }, 503));
+  return app;
+}

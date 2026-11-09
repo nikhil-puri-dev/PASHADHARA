@@ -1,0 +1,19 @@
+{
+  "A": {
+    "label": "untouched",
+    "order_id": "7V922157C3335043P",
+    "authorization_id": "8X4614360K939835H",
+    "amount": "20.00 USD",
+    "created": "2026-11-06T16:17:16.179Z",
+    "expiration_time": "2026-12-05T16:17:11Z"
+  },
+  "B": {
+    "label": "partly captured $2",
+    "order_id": "9JV01949M0816932E",
+    "authorization_id": "94D74698WW229864M",
+    "amount": "20.00 USD",
+    "created": "2026-11-06T16:17:18.219Z",
+    "expiration_time": "2026-12-05T16:17:13Z",
+    "partial_capture_id": "6DH63401A78977801"
+  }
+}

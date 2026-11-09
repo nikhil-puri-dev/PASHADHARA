@@ -1,0 +1,13 @@
+{
+  "name": "pashadhara",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "pnpm@11.21.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "pnpm -r --if-present test",
+    "contract:schema": "pnpm --filter @pashadhara/contract test:schema",
+    "contract:race": "pnpm --filter @pashadhara/contract test:race",
+    "contract:api": "pnpm --filter @pashadhara/contract lint:api"
+  }
+}

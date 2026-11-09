@@ -1,0 +1,809 @@
+openapi: 3.1.0
+info:
+  title: PASHADHARA API
+  version: 0.5.0
+  summary: A PayPal authorization hold as an agent's spending budget, with a deterministic money kernel.
+  description: |
+    All amounts are integer minor units (USD cents). All provenance fields use measured, computed or fixture.
+    Sandbox only. The MCP endpoint at /mcp exposes the same paid tools as /v1/tools/{toolId}/call.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: https://api.pashadhara.example
+    description: Replace with the deployed API origin.
+security:
+  - leaseToken: []
+tags:
+  - name: leases
+  - name: gateway
+  - name: jobs
+  - name: sellers
+  - name: proof
+  - name: webhooks
+
+paths:
+  /v1/leases:
+    get:
+      tags: [leases]
+      operationId: listLeases
+      summary: List leases visible to the caller, newest first.
+      security: [{ adminKey: [] }]
+      responses:
+        '200':
+          description: Leases.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [leases]
+                properties:
+                  leases:
+                    type: array
+                    items: { $ref: '#/components/schemas/Lease' }
+        '401': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [leases]
+      operationId: createLease
+      security: []
+      summary: Create a lease and its PayPal authorize-intent order. Returns the buyer approval link.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateLease' }
+      responses:
+        '201':
+          description: Lease created, waiting for buyer approval.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaseCreated' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /v1/leases/{leaseId}:
+    get:
+      tags: [leases]
+      operationId: getLease
+      summary: Read a lease with live balances and its authorization lineage.
+      parameters: [{ $ref: '#/components/parameters/LeaseId' }]
+      responses:
+        '200':
+          description: Lease with live balances.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lease' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /v1/leases/{leaseId}/authorize:
+    post:
+      tags: [leases]
+      operationId: authorizeLease
+      summary: After buyer approval, authorize the order. Writes the intent row first (I6).
+      parameters: [{ $ref: '#/components/parameters/LeaseId' }]
+      responses:
+        '200':
+          description: Lease is active.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lease' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/leases/{leaseId}/settle:
+    post:
+      tags: [leases]
+      operationId: settleLease
+      summary: Capture committed usage now. Normally the fee-aware scheduler calls this.
+      parameters: [{ $ref: '#/components/parameters/LeaseId' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, enum: [scheduler, manual, exposure_limit, closing] }
+      responses:
+        '200':
+          description: Result of the settlement attempt. A capture may be declined or unknown, which is a normal outcome.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SettleResult' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/leases/{leaseId}/reauthorize:
+    post:
+      tags: [leases]
+      operationId: reauthorizeLease
+      summary: Reauthorize the live authorization once, from day 4 to day 29 (PayPal's own words are 'only allowed once'). PayPal creates a new authorization id. A second reauthorization stays disabled until a logged day-4 test shows it works.
+      parameters: [{ $ref: '#/components/parameters/LeaseId' }]
+      responses:
+        '200':
+          description: New authorization in the lineage.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lease' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /v1/leases/{leaseId}/close:
+    post:
+      tags: [leases]
+      operationId: closeLease
+      summary: Settle what is committed, void the remainder, post release entries, assert I14.
+      parameters: [{ $ref: '#/components/parameters/LeaseId' }]
+      responses:
+        '200':
+          description: Lease closed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Lease' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/leases/{leaseId}/journal:
+    get:
+      tags: [leases]
+      operationId: getJournal
+      summary: Read the append-only ledger entries for a lease.
+      parameters:
+        - { $ref: '#/components/parameters/LeaseId' }
+        - { name: after, in: query, schema: { type: integer }, description: Return entries with id greater than this. }
+      responses:
+        '200':
+          description: Ledger entries in order, grouped.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items: { $ref: '#/components/schemas/LedgerEntry' }
+  /v1/leases/{leaseId}/events:
+    get:
+      tags: [leases]
+      operationId: streamEvents
+      summary: Server-sent events for the lease. Each event data field is a LeaseEvent.
+      parameters: [{ $ref: '#/components/parameters/LeaseId' }]
+      responses:
+        '200':
+          description: Event stream.
+          content:
+            text/event-stream:
+              schema: { $ref: '#/components/schemas/LeaseEvent' }
+
+  /v1/tools:
+    get:
+      tags: [gateway]
+      operationId: listTools
+      security: []
+      summary: Free. Listing tools never costs budget.
+      responses:
+        '200':
+          description: Paid tools.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tools]
+                properties:
+                  tools:
+                    type: array
+                    items: { $ref: '#/components/schemas/Tool' }
+  /v1/tools/{toolId}/call:
+    post:
+      tags: [gateway]
+      operationId: callTool
+      summary: Call a paid tool against a lease. Commits the price before serving. Returns 402 when refused.
+      parameters:
+        - { name: toolId, in: path, required: true, schema: { type: string } }
+        - { name: X-Pashadhara-Lease, in: header, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Served. The ledger group id links to the journal.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ToolResult' }
+        '402':
+          description: Payment required. Cap reached, unsettled exposure limit reached, or guaranteed window ended without reauthorization.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentRequired' }
+
+  /v1/jobs:
+    post:
+      tags: [jobs]
+      operationId: createJob
+      summary: Buyer creates an escrowed job and its rubric before any work starts. Reserves the amount.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateJob' }
+      responses:
+        '201':
+          description: Job open. Amount is committed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '402': { $ref: '#/components/responses/PaymentRequiredResponse' }
+  /v1/jobs/{jobId}:
+    get:
+      tags: [jobs]
+      operationId: getJob
+      summary: Read a job with its verdicts and decision.
+      parameters: [{ $ref: '#/components/parameters/JobId' }]
+      responses:
+        '200':
+          description: Job with verdicts and decision when present.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+  /v1/jobs/{jobId}/deliver:
+    post:
+      tags: [jobs]
+      operationId: deliverJob
+      security: [{ sellerKey: [] }]
+      summary: Seller submits the deliverable. Accepted at once. Pre-checks, two judges and the kernel decision run asynchronously.
+      parameters: [{ $ref: '#/components/parameters/JobId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deliverable]
+              properties:
+                deliverable:
+                  type: string
+                  description: Untrusted content. Judges receive it as quoted data only.
+      responses:
+        '202':
+          description: Accepted. The job is judging. Poll getJob or watch the event stream for the decision. Capture or void follows through the kernel, never through the judge.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/jobs/{jobId}/appeal:
+    post:
+      tags: [jobs]
+      operationId: appealJob
+      summary: Buyer appeals inside the payout hold window. Moves the job to held. The database holds queued payouts. Held to decided clears those holds when the appeal is withdrawn or upheld; held to judging retains them.
+      parameters: [{ $ref: '#/components/parameters/JobId' }]
+      responses:
+        '200':
+          description: Job held.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+
+  /v1/sellers:
+    post:
+      tags: [sellers]
+      operationId: createSeller
+      security: [{ adminKey: [] }]
+      summary: Register a seller who receives payouts. Returns the seller key once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, paypal_email]
+              properties:
+                name: { type: string }
+                paypal_email: { type: string, format: email }
+                payout_hold_seconds: { type: integer, minimum: 30, description: 'Seconds. The database rejects less than 30 and the value can only increase.' }
+      responses:
+        '201':
+          description: Seller created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Seller' }
+  /v1/sellers/{sellerId}/payouts:
+    get:
+      tags: [sellers]
+      operationId: listPayouts
+      security: [{ sellerKey: [] }]
+      summary: List a seller's payouts with their PayPal state.
+      parameters: [{ name: sellerId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Payouts for the seller.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [payouts]
+                properties:
+                  payouts:
+                    type: array
+                    items: { $ref: '#/components/schemas/Payout' }
+
+  /v1/sellers/{sellerId}/tools:
+    post:
+      tags: [sellers]
+      operationId: createTool
+      summary: A seller lists a paid tool.
+      security: [{ sellerKey: [] }]
+      parameters: [{ name: sellerId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, name, price_minor]
+              properties:
+                id: { type: string }
+                name: { type: string }
+                description: { type: string }
+                price_minor: { $ref: '#/components/schemas/PositiveMoney' }
+      responses:
+        '201':
+          description: Tool created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Tool' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /v1/sellers/{sellerId}/jobs:
+    get:
+      tags: [sellers]
+      operationId: listSellerJobs
+      summary: Jobs addressed to this seller.
+      security: [{ sellerKey: [] }]
+      parameters: [{ name: sellerId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200':
+          description: Jobs.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    items: { $ref: '#/components/schemas/Job' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /v1/jobs/{jobId}/cancel:
+    post:
+      tags: [jobs]
+      operationId: cancelJob
+      summary: Buyer cancels a job that has no delivery yet. Posts a return of the reserve.
+      parameters: [{ $ref: '#/components/parameters/JobId' }]
+      responses:
+        '200':
+          description: Job voided.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Job' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/leases/{leaseId}/captures:
+    get:
+      tags: [leases]
+      operationId: listCaptures
+      summary: Captures for a lease, including declined and unknown ones.
+      parameters: [{ $ref: '#/components/parameters/LeaseId' }]
+      responses:
+        '200':
+          description: Captures.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [captures]
+                properties:
+                  captures:
+                    type: array
+                    items: { $ref: '#/components/schemas/Capture' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /v1/leases/{leaseId}/reconcile:
+    post:
+      tags: [leases]
+      operationId: reconcileLease
+      summary: Read PayPal by API, resolve any unknown call by reading (I7), and record anything that changed. Also the polling fallback for late webhooks.
+      parameters: [{ $ref: '#/components/parameters/LeaseId' }]
+      responses:
+        '200':
+          description: What was read and what changed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Proof' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /v1/leases/{leaseId}/proof:
+    get:
+      tags: [proof]
+      operationId: getProof
+      summary: Our ledger against PayPal read by API, line by line (I15). Differences are shown, never fixed silently.
+      parameters: [{ $ref: '#/components/parameters/LeaseId' }]
+      responses:
+        '200':
+          description: Reconciliation result.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Proof' }
+  /v1/leases/{leaseId}/proof/faults:
+    post:
+      tags: [proof]
+      operationId: injectFault
+      security: [{ adminKey: [] }]
+      summary: Inject a real fault and report what the kernel did. Exists only when FAULTS_ENABLED is set and the server uses the PayPal sandbox.
+      parameters: [{ $ref: '#/components/parameters/LeaseId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fault]
+              properties:
+                fault:
+                  type: string
+                  enum: [replay_webhook, shuffle_webhooks, kill_between_send_and_response, concurrent_settle, capture_decline_header]
+                repeat: { type: integer, minimum: 1, maximum: 20, default: 5 }
+      responses:
+        '200':
+          description: Fault applied. The body lists the invariants checked and their results.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FaultResult' }
+
+  /webhooks/paypal:
+    post:
+      tags: [webhooks]
+      operationId: receivePayPalWebhook
+      security: []
+      summary: PayPal webhook receiver. Verify the signature with PayPal, store by event id, then re-read state by API.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { description: 'Stored, duplicate, or ignored. Always 200 once verified so PayPal stops retrying.' }
+        '400': { description: 'Signature verification failed. The event is stored with signature_verified false and never processed.' }
+
+components:
+  securitySchemes:
+    leaseToken:
+      type: http
+      scheme: bearer
+      description: Issued when a lease is created. Scoped to that one lease. Any lease_id in a request body must match the token. Used by buyers and agents.
+    sellerKey:
+      type: http
+      scheme: bearer
+      description: Issued when a seller is created. Scoped to that seller.
+    adminKey:
+      type: http
+      scheme: bearer
+      description: Operator credential from the environment. Required for seller creation and fault injection. Sandbox only.
+  parameters:
+    LeaseId: { name: leaseId, in: path, required: true, schema: { type: string, format: uuid } }
+    JobId: { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Problem:
+      description: Problem details.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PaymentRequiredResponse:
+      description: Payment required.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PaymentRequired' }
+  schemas:
+    Provenance:
+      type: string
+      enum: [measured, computed, fixture]
+      description: measured came from PayPal. computed was derived by our code from measured data. fixture is test data and must never be shown as PayPal output.
+    Money:
+      type: integer
+      format: int64
+      minimum: 0
+      maximum: 9007199254740991
+      description: USD minor units. The kernel uses bigint. The API limits JSON values to the safe integer range so generated TypeScript numbers stay exact.
+    PositiveMoney:
+      type: integer
+      format: int64
+      minimum: 1
+      maximum: 9007199254740991
+      description: USD minor units, at least 1. Used for caps, prices and job amounts, which the database requires to be above zero.
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        invariant: { type: string, description: 'Invariant id such as I1 when a kernel rule refused the action.' }
+    CreateLease:
+      type: object
+      required: [buyer_ref, cap_minor]
+      properties:
+        buyer_ref: { type: string }
+        cap_minor: { $ref: '#/components/schemas/PositiveMoney' }
+        unsettled_limit_minor: { $ref: '#/components/schemas/Money', description: Defaults to half of cap. }
+    LeaseCreated:
+      type: object
+      required: [lease_id, lease_token, approve_url]
+      properties:
+        lease_id: { type: string, format: uuid }
+        lease_token: { type: string, description: Bearer token scoped to this lease. Returned once. }
+        paypal_order_id: { type: string }
+        approve_url: { type: string, format: uri }
+    Authorization:
+      type: object
+      required: [id, paypal_authorization_id, parent_id, amount_minor, status, honor_until, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        paypal_authorization_id: { type: string }
+        parent_id: { type: [string, 'null'], format: uuid }
+        amount_minor: { $ref: '#/components/schemas/Money' }
+        status: { type: string, enum: [created, partially_captured, captured, voided, expired, denied, superseded] }
+        honor_until: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    Lease:
+      type: object
+      required: [id, state, cap_minor, unsettled_limit_minor, balances, authorizations, guaranteed_now]
+      properties:
+        id: { type: string, format: uuid }
+        state: { type: string, enum: [pending_approval, active, closed, expired, failed] }
+        cap_minor: { $ref: '#/components/schemas/Money' }
+        unsettled_limit_minor: { $ref: '#/components/schemas/Money' }
+        guaranteed_now:
+          type: boolean
+          description: True only while the live authorization is inside its 3-day honor period. honor_until is created_at plus 3 days, frozen, and created_at must match the clock.
+        balances:
+          type: object
+          description: Net balance of each ledger account. Conservation (I16) is buyer_commitment = hold_available + committed_unsettled + released + written_off + total_captured.
+          required: [buyer_commitment, hold_available, committed_unsettled, captured_gross, paypal_fees, seller_cost, seller_payable, released, written_off, chargeback_loss, total_captured]
+          properties:
+            buyer_commitment: { $ref: '#/components/schemas/Money' }
+            hold_available: { $ref: '#/components/schemas/Money' }
+            committed_unsettled: { $ref: '#/components/schemas/Money' }
+            captured_gross: { $ref: '#/components/schemas/Money' }
+            paypal_fees: { $ref: '#/components/schemas/Money' }
+            seller_cost: { $ref: '#/components/schemas/Money' }
+            seller_payable: { $ref: '#/components/schemas/Money' }
+            released: { $ref: '#/components/schemas/Money' }
+            written_off: { $ref: '#/components/schemas/Money' }
+            chargeback_loss: { $ref: '#/components/schemas/Money' }
+            total_captured: { $ref: '#/components/schemas/Money' }
+        authorizations:
+          type: array
+          items: { $ref: '#/components/schemas/Authorization' }
+    LedgerEntry:
+      type: object
+      required: [id, group_id, account, direction, amount_minor, ref_type, ref_id, created_at]
+      properties:
+        id: { type: integer }
+        group_id: { type: string, format: uuid }
+        account: { type: string, enum: [BUYER_COMMITMENT, HOLD_AVAILABLE, COMMITTED_UNSETTLED, CAPTURED_GROSS, PAYPAL_FEES, SELLER_COST, SELLER_PAYABLE, RELEASED, WRITTEN_OFF, CHARGEBACK_LOSS] }
+        direction: { type: string, enum: [D, C] }
+        amount_minor: { $ref: '#/components/schemas/Money' }
+        ref_type: { type: string }
+        ref_id: { type: string }
+        created_at: { type: string, format: date-time }
+    CaptureAllocation:
+      type: object
+      required: [capture_id, lease_id, ref_id, amount_minor]
+      properties:
+        capture_id: { type: string, format: uuid }
+        lease_id: { type: string, format: uuid }
+        ref_id: { type: string, format: uuid, description: Paying job id or served tool call id on this lease. }
+        amount_minor: { $ref: '#/components/schemas/PositiveMoney' }
+    Capture:
+      type: object
+      required: [id, lease_id, authorization_id, amount_minor, status, allocations, provenance]
+      properties:
+        id: { type: string, format: uuid }
+        lease_id: { type: string, format: uuid }
+        allocations:
+          type: array
+          minItems: 1
+          description: Immutable allocations written with capture intent. Sum equals capture amount. Decision-tied captures allocate only to their job.
+          items: { $ref: '#/components/schemas/CaptureAllocation' }
+        authorization_id: { type: string, format: uuid }
+        decision_id: { type: [string, 'null'], format: uuid }
+        paypal_capture_id: { type: [string, 'null'] }
+        amount_minor: { $ref: '#/components/schemas/Money' }
+        fee_minor: { oneOf: [{ $ref: '#/components/schemas/Money' }, { type: 'null' }] }
+        status: { type: string, enum: [intent, pending, completed, declined, denied, reversed, unknown] }
+        provenance: { $ref: '#/components/schemas/Provenance' }
+    SettleResult:
+      type: object
+      required: [captures, naive_fee_minor, actual_fee_minor]
+      properties:
+        captures:
+          type: array
+          items: { $ref: '#/components/schemas/Capture' }
+        naive_fee_minor:
+          $ref: '#/components/schemas/Money'
+          description: Computed. Fee if every metered call had been captured on its own.
+        actual_fee_minor:
+          $ref: '#/components/schemas/Money'
+          description: Measured. Fee PayPal charged on the settlement captures.
+    Tool:
+      type: object
+      required: [id, name, price_minor, seller_id]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        price_minor: { $ref: '#/components/schemas/PositiveMoney' }
+        seller_id: { type: string, format: uuid }
+    ToolResult:
+      type: object
+      required: [result, charged_minor, ledger_group_id, remaining_minor]
+      properties:
+        result: {}
+        charged_minor: { $ref: '#/components/schemas/Money' }
+        ledger_group_id: { type: string, format: uuid }
+        remaining_minor: { $ref: '#/components/schemas/Money' }
+    PaymentRequired:
+      type: object
+      required: [reason, price_minor, remaining_minor, lease_id]
+      properties:
+        reason: { type: string, enum: [cap_reached, exposure_limit, window_ended, lease_not_active] }
+        price_minor: { $ref: '#/components/schemas/Money' }
+        remaining_minor: { $ref: '#/components/schemas/Money' }
+        lease_id: { type: string, format: uuid }
+        next_action: { type: string, description: Human-readable step such as approve a new lease or wait for settlement. }
+    CreateJob:
+      type: object
+      required: [lease_id, seller_id, amount_minor, rubric]
+      properties:
+        lease_id: { type: string, format: uuid }
+        seller_id: { type: string, format: uuid }
+        amount_minor: { $ref: '#/components/schemas/PositiveMoney' }
+        rubric:
+          type: array
+          description: Buyer-set before work starts. Highest matching min_score wins. pay_bps is basis points of the job amount, 0 to 10000.
+          items:
+            type: object
+            required: [min_score, pay_bps]
+            properties:
+              min_score: { type: integer, minimum: 0, maximum: 100 }
+              pay_bps: { type: integer, minimum: 0, maximum: 10000 }
+        acceptance:
+          type: object
+          description: Deterministic pre-checks such as max_bytes, content_type, sha256, or a test command id.
+          additionalProperties: true
+    Verdict:
+      type: object
+      required: [judge_provider, model, verdict, score, reasons]
+      properties:
+        round: { type: integer, minimum: 1, maximum: 3, description: Exactly two providers complete a round. A complete disagreement and hold allow the next round. Unanimous passes freeze verdicts. }
+        judge_provider: { type: string, enum: [openai, anthropic, xai, google] }
+        model: { type: string }
+        verdict: { type: string, enum: [pass, fail, unsure] }
+        score: { type: integer, minimum: 0, maximum: 100 }
+        reasons: { type: array, items: { type: string } }
+    Decision:
+      type: object
+      required: [id, round, outcome, amount_minor, derived_from]
+      properties:
+        id: { type: string, format: uuid }
+        round: { type: integer, minimum: 0, maximum: 3, description: Derived by the database from the latest verdict round. Zero means no verdicts. }
+        outcome: { type: string, enum: [release, partial, void, hold] }
+        amount_minor: { $ref: '#/components/schemas/Money' }
+        derived_from: { type: object, additionalProperties: true }
+    Job:
+      type: object
+      required: [id, lease_id, seller_id, amount_minor, state]
+      properties:
+        id: { type: string, format: uuid }
+        lease_id: { type: string, format: uuid }
+        seller_id: { type: string, format: uuid }
+        amount_minor: { $ref: '#/components/schemas/Money' }
+        state: { type: string, enum: [open, delivered, judging, decided, settled, voided, held] }
+        rubric: { type: array, items: { type: object, additionalProperties: true } }
+        deliverable_hash: { type: [string, 'null'] }
+        verdicts: { type: array, items: { $ref: '#/components/schemas/Verdict' } }
+        decision: { oneOf: [{ $ref: '#/components/schemas/Decision' }, { type: 'null' }] }
+    Seller:
+      type: object
+      required: [id, name, paypal_email, payout_hold_seconds]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        paypal_email: { type: string, format: email }
+        payout_hold_seconds: { type: integer }
+    Payout:
+      type: object
+      required: [id, lease_id, source, amount_minor, state, release_at, provenance]
+      description: A failed payout can be replaced. Sending requires source accrual after clawback and available captured cash. Success requires its unique call, unique batch, matching stored amount and atomic posting.
+      properties:
+        id: { type: string, format: uuid }
+        lease_id: { type: string, format: uuid }
+        source: { type: string, enum: [job, metered] }
+        decision_id: { type: [string, 'null'], format: uuid }
+        amount_minor: { $ref: '#/components/schemas/PositiveMoney' }
+        state: { type: string, enum: [queued, sent, success, failed, unknown] }
+        release_at: { type: string, format: date-time }
+        call_id: { type: [string, 'null'], format: uuid }
+        held_at: { type: [string, 'null'], format: date-time, description: Set and cleared only by the jobs trigger. }
+        receiver_email: { type: string, format: email }
+        paypal_batch_id: { type: [string, 'null'] }
+        provenance: { $ref: '#/components/schemas/Provenance' }
+    ProofLine:
+      type: object
+      required: [subject, ours, paypal, match]
+      properties:
+        subject: { type: string, description: 'For example capture 6DH63401A78977801 or authorization status.' }
+        ours: { type: object, additionalProperties: true }
+        paypal: { type: object, additionalProperties: true, description: 'Measured. Read from PayPal by API at read_at.' }
+        match: { type: boolean }
+        read_at: { type: string, format: date-time }
+    Proof:
+      type: object
+      required: [lease_id, lines, invariants, all_match]
+      properties:
+        lease_id: { type: string, format: uuid }
+        all_match: { type: boolean }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/ProofLine' }
+        invariants:
+          type: array
+          items:
+            type: object
+            required: [id, holds]
+            properties:
+              id: { type: string, description: 'I1 to I18' }
+              holds: { type: boolean }
+              detail: { type: string }
+    FaultResult:
+      type: object
+      required: [fault, applied, invariants]
+      properties:
+        fault: { type: string }
+        applied: { type: integer }
+        invariants:
+          type: array
+          items:
+            type: object
+            required: [id, holds]
+            properties:
+              id: { type: string }
+              holds: { type: boolean }
+              detail: { type: string }
+    LeaseEvent:
+      type: object
+      required: [seq, type, at, provenance]
+      properties:
+        seq: { type: integer }
+        at: { type: string, format: date-time }
+        provenance: { $ref: '#/components/schemas/Provenance' }
+        type:
+          type: string
+          enum:
+            - lease.created
+            - lease.approved
+            - lease.closed
+            - meter.served
+            - meter.refused
+            - capture.intent
+            - capture.completed
+            - capture.declined
+            - capture.unknown
+            - capture.reconciled
+            - authorization.reauthorized
+            - authorization.voided
+            - lease.expired
+            - capture.pending
+            - job.created
+            - job.delivered
+            - job.appealed
+            - job.held
+            - verdict.recorded
+            - decision.made
+            - payout.queued
+            - payout.sent
+            - payout.success
+            - payout.failed
+            - webhook.received
+            - webhook.duplicate
+            - webhook.polled
+            - fault.injected
+        data: { type: object, additionalProperties: true }

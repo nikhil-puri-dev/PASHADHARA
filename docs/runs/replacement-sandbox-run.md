@@ -1,0 +1,21 @@
+# Rails replacement approval | 2026-11-09 IST
+
+PayPal returned measured sandbox order `4BD11293U5014590L` for USD 20.00 with intent `AUTHORIZE`. A read-only query verified its durable successful create intent on computed kernel lease `58992eb4-5bd1-4b1c-b58b-2b991efb3b71`. [Buyer approval link](https://www.sandbox.paypal.com/checkoutnow?token=4BD11293U5014590L)
+
+The original checkout error was reported roughly nine hours after creation. PayPal documents a six-hour default window to redirect a payer. Expiry is plausible from the timing. The browser screenshot does not establish PayPal's reason. [PayPal order documentation](https://developer.paypal.com/sdk/orders/v2/definitions/order/)
+
+The runner uses one-shot HTTPS and a separate 25-call cap for this replacement run. Its `--replacement` flag keeps the original JSONL intact. The fresh review verified order identity and spotted the need to pass the replacement suffix to the capture audit. The verifier now accepts the same narrowly validated suffix. Computed API typecheck passed and the restricted API test run passed 54 checks with one loopback test skipped. [Replacement JSONL](../evidence/live-20261109-replacement.jsonl)
+
+The first approved GET was followed by measured HTTP 422 `ORDER_NOT_APPROVED` (debug ID `f29391157ae4d`). A fresh GET returned `PAYER_ACTION_REQUIRED`. The buyer's second attempt returned to the expected local approval URL, where the browser showed a refused connection because the callback server was absent. The runner independently verified a second approved GET with payer evidence before sending a new authorization intent. This retry followed a definitive failure recorded by the kernel. The exact cause of the first status reversion remains unverified.
+
+PayPal then measured a USD 20.00 authorization and completed partial captures of USD 1.00 and USD 5.00, with USD 0.52 and USD 0.66 fees. Independent replay matched 10 then 16 fields and confirmed logged GET bodies against stored kernel responses. The scripted MCP client served one initial call and five subsequent USD 1.00 calls. One further call was refused at the exposure limit and had no ledger group.
+
+The USD 3.00 escrow job received two real passing verdicts from OpenAI and Anthropic, each scored 100 in the kernel. The kernel derived a USD 3.00 release and PayPal measured a USD 0.59 fee. An independent query verified the queued USD 2.41 net payout matched the configured SELLER_A recipient. No contract deviations.
+
+PayPal GET confirmed batch and item `SUCCESS` for USD 2.41. The kernel's payout call and its independent GET contain the same allowlisted response fields, and the journal posted the exact USD 2.41 payable debit to the verified seller. The measured USD 0.25 PayPal payout processing fee appears in the response and has no separate posting in the current journal.
+
+Void POST and a separate PayPal GET both returned `VOIDED`. The final independent read confirmed the lease closed, USD 11.00 released, zero hold and committed balances, and zero unresolved intents. Measured captures totaled USD 9.00 with USD 1.77 in capture fees. All 24 replacement dispatches, including three OAuth exchanges, paired with a response. The evidence scan found zero configured protected values.
+
+Fresh reviews ran at the approval, first capture, metering, escrow, payout and close checkpoints. The first capture review prompted the standalone verifier to match the projected JSONL GET bodies to the kernel's stored responses. The approval rejection review prompted a bounded recovery path that accepts only the definitive rejection plus matching subsequent GET history and requires fresh approval with payer evidence. Recovery, bad log histories and duplicate IDs are covered by tests. API typecheck and all 55 API tests passed with loopback available. The final restricted-shell run passed 10 focused tests and skipped its loopback check.
+
+Unverified in this run: a separate GET for the escrow capture, webhook delivery, reauthorization, and the exact cause of the first approval reversion. The local kernel database suites, contract race and OpenAPI lint were blocked in the earlier verification attempt. The runner's callback server was absent, as shown in the buyer recording. No Git, deployment, contract edit or sentinel use.

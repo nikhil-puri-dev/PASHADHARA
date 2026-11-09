@@ -1,0 +1,21 @@
+{
+  "name": "@pashadhara/kernel",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run --disableConsoleIntercept",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "fast-check": "^4.10.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

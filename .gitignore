@@ -1,0 +1,40 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# Dependencies and local package stores
+node_modules/
+.pnpm-store/
+.isolated-modules/
+
+# Build output, caches, test output
+.next/
+.vercel/
+dist/
+coverage/
+.turbo/
+test-results/
+playwright-report/
+*.tsbuildinfo
+next-env.d.ts
+*.log
+
+# Raw sandbox logs hold account fields. The masked copies in evidence/ are the public record.
+evidence/spike-log.jsonl
+evidence/spike2-log.jsonl
+
+# Recordings and local scratch
+demo/.artifacts/
+*.webm
+*.mp4
+*.bak
+*.bak-*
+
+# Local tool state and OS junk
+.claude/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,2 @@
+{"provenance":"fixture","operation":"authorization_read","body":{"id":"532a8f1f-fe12-4d05-bfd6-f8fd2cec8155","status":"PARTIALLY_CAPTURED","amount":{"currency_code":"USD","value":"20.00"}}}
+{"provenance":"fixture","operation":"capture_read","body":{"id":"bc61b476-f668-4459-abb5-3c5dd87c2dee","status":"COMPLETED","amount":{"currency_code":"USD","value":"1.00"},"seller_receivable_breakdown":{"paypal_fee":{"currency_code":"USD","value":"0.52"}}}}

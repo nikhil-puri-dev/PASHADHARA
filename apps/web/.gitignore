@@ -1,0 +1,5 @@
+next-env.d.ts
+*.tsbuildinfo
+.phase-a/
+.phase-b/
+.phase-c/

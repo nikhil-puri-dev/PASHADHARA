@@ -1,0 +1,61 @@
+{
+  "provenance": "fixture",
+  "lines": [
+    {
+      "field": "authorization.id",
+      "ours": "532a8f1f-fe12-4d05-bfd6-f8fd2cec8155",
+      "paypal": "532a8f1f-fe12-4d05-bfd6-f8fd2cec8155",
+      "match": true,
+      "ours_provenance": "computed",
+      "paypal_provenance": "fixture"
+    },
+    {
+      "field": "authorization.status",
+      "ours": "PARTIALLY_CAPTURED",
+      "paypal": "PARTIALLY_CAPTURED",
+      "match": true,
+      "ours_provenance": "computed",
+      "paypal_provenance": "fixture"
+    },
+    {
+      "field": "authorization.amount_minor",
+      "ours": "2000",
+      "paypal": "2000",
+      "match": true,
+      "ours_provenance": "computed",
+      "paypal_provenance": "fixture"
+    },
+    {
+      "field": "capture.id",
+      "ours": "bc61b476-f668-4459-abb5-3c5dd87c2dee",
+      "paypal": "bc61b476-f668-4459-abb5-3c5dd87c2dee",
+      "match": true,
+      "ours_provenance": "computed",
+      "paypal_provenance": "fixture"
+    },
+    {
+      "field": "capture.status",
+      "ours": "COMPLETED",
+      "paypal": "COMPLETED",
+      "match": true,
+      "ours_provenance": "computed",
+      "paypal_provenance": "fixture"
+    },
+    {
+      "field": "capture.amount_minor",
+      "ours": "100",
+      "paypal": "100",
+      "match": true,
+      "ours_provenance": "computed",
+      "paypal_provenance": "fixture"
+    },
+    {
+      "field": "capture.fee_minor",
+      "ours": "52",
+      "paypal": "52",
+      "match": true,
+      "ours_provenance": "computed",
+      "paypal_provenance": "fixture"
+    }
+  ]
+}

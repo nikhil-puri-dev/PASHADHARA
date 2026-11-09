@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pashadhara, four marks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--quarry:#D5D8CE;--lint:#E4E6DC;--walnut:#231F1B;--umber:#54504A;--cotton:#F3EFE2;--cochineal:#8C1D38;
+  --ui:"Familjen Grotesk","Segoe UI",system-ui,sans-serif;--mono:"Spline Sans Mono",ui-monospace,Consolas,monospace;--gutter:clamp(16px,4vw,56px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--quarry);color:var(--walnut);font:400 17px/1.5 var(--ui)}
+.wrap{max-width:1360px;margin-inline:auto;padding-inline:var(--gutter)}
+h1,h2,h3,p{margin:0}
+h1{font-size:clamp(2.4rem,6vw,5rem);font-weight:600;letter-spacing:-.03em;line-height:1;max-width:14ch}
+.intro{padding-block:72px 56px}
+.intro p{max-width:40rem;margin-top:24px;font-size:1.1875rem}
+.v{padding-block:72px}
+.v:nth-of-type(even){background:var(--lint)}
+.v.dark{background:var(--walnut);color:var(--cotton)}
+.v.dark .muted{color:#BDB8AB}
+.head{display:flex;gap:16px;align-items:baseline;flex-wrap:wrap}
+.head .no{font:500 .9375rem var(--mono);color:var(--umber)}
+.v.dark .head .no{color:#BDB8AB}
+.v h2{font-size:clamp(1.8rem,3.4vw,2.8rem);font-weight:600;letter-spacing:-.02em;line-height:1.05}
+.grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:56px;margin-top:40px;align-items:start}
+.big{display:flex;align-items:center;justify-content:center;min-height:340px;background:rgba(35,31,27,.06);padding:32px}
+.v.dark .big{background:rgba(243,239,226,.06)}
+.big svg{height:240px;width:auto;max-width:100%;overflow:visible}
+.txt p{max-width:32rem;margin-bottom:14px}
+.txt .muted{color:var(--umber)}
+.apps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:40px}
+.app{padding:28px;min-height:150px;display:flex;flex-direction:column;justify-content:space-between;gap:20px}
+.app small{font:500 .875rem var(--mono);opacity:.7}
+.light{background:var(--cotton);color:var(--walnut)}
+.ink{background:var(--walnut);color:var(--cotton)}
+.red{background:var(--cochineal);color:var(--cotton)}
+.lock{display:flex;align-items:center;gap:14px}
+.lock svg{height:44px;width:auto;flex:none;overflow:visible}
+.word{font-weight:700;font-size:1.3rem;letter-spacing:.2em;text-transform:uppercase;line-height:1;white-space:nowrap}
+.sizes{display:flex;align-items:flex-end;gap:22px}
+.sizes svg{display:block;overflow:visible}
+/* variation C: a typeset wordmark with two cord crossbars */
+.wm{font-weight:700;letter-spacing:.14em;text-transform:uppercase;line-height:1;white-space:nowrap;display:inline-flex;align-items:center}
+.hh{display:inline-block;position:relative;width:.7em;height:.72em;margin:0 .08em}
+.hh::before,.hh::after{content:"";position:absolute;top:0;bottom:0;width:.15em;background:currentColor}
+.hh::before{left:0}.hh::after{right:0}
+.hh i{position:absolute;left:.1em;right:.1em;top:50%;height:.27em;margin-top:-.135em;background-color:var(--cotton);
+  box-shadow:0 0 0 .035em currentColor;background-image:repeating-linear-gradient(35deg,rgba(35,31,27,.35) 0 1px,transparent 1px 3.5px)}
+.hh.a i{background-color:#4a423a}
+.hh.b i{background-color:var(--cochineal)}
+.hh.on-dark i{box-shadow:0 0 0 .035em var(--cotton)}
+.cur{opacity:.9}
+@media (max-width:900px){.grid{grid-template-columns:1fr;gap:28px}.apps{grid-template-columns:1fr}.big{min-height:260px}.big svg{height:190px}}
+</style>
+</head>
+<body>
+<section class="intro"><div class="wrap">
+  <h1>Four marks for Pashadhara.</h1>
+  <p>Each one starts from a different idea, so you are choosing between directions, not tweaks. Pasha is the binding. Dhara is the stream it holds. All four use the same palette so you judge the idea, not the colour. For reference, the mark we use now is a P drawn as cord, shown last.</p>
+</div></section>
+<div id="vars"></div>
+<script>
+const INK="#231F1B",COT="#F3EFE2",RED="#8C1D38",WAL="#4a423a",QUA="#D5D8CE";
+/* A: the tally. A cord tied by decimal place on a tile, a number you can read with your fingers. */
+const A=(tile,cord,knot,w)=>`<svg viewBox="0 0 64 64" width="${w||64}" height="${w||64}" role="img" aria-label="Tally mark"><rect x="2" y="2" width="60" height="60" rx="11" fill="${tile}"/>
+ <path d="M32 9V54" stroke="${cord}" stroke-width="9" stroke-linecap="round"/>
+ <path d="M32 9V54" stroke="${tile}" stroke-opacity=".22" stroke-width="9" stroke-dasharray="1.2 3.6"/>
+ ${[[14,1],[24,2],[41,3]].map(([y,n])=>Array.from({length:n},(_,j)=>`<rect x="21" y="${y+j*4.4}" width="22" height="3.2" rx="1.6" fill="${knot}"/>`).join("")).join("")}</svg>`;
+/* B: the stream, held. A line enters a binding, runs as a wave inside it, leaves straight. */
+const B=(out,wave,band,straight,w)=>{let d="";for(let x=18;x<=78;x+=2){const y=24+7.5*Math.sin((x-18)/60*Math.PI*3);d+=(x===18?"M":"L")+x+" "+y.toFixed(2)+" "}
+ return `<svg viewBox="0 0 96 48" ${w?`width="${w}" height="${w/2}"`:""} role="img" aria-label="Stream held mark">
+ <path d="M2 24H18" stroke="${out}" stroke-width="7.6" stroke-linecap="round"/><path d="M2 24H18" stroke="${straight}" stroke-width="4.6" stroke-linecap="round"/>
+ <path d="M78 24H94" stroke="${out}" stroke-width="7.6" stroke-linecap="round"/><path d="M78 24H94" stroke="${straight}" stroke-width="4.6" stroke-linecap="round"/>
+ <path d="${d}" fill="none" stroke="${out}" stroke-width="7.6" stroke-linecap="round" stroke-linejoin="round"/><path d="${d}" fill="none" stroke="${wave}" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"/>
+ ${[15,75].map(x=>`<rect x="${x}" y="8" width="6" height="32" rx="1" fill="${band}"/><path d="${[13,20,27,34].map(y=>`M${x} ${y}l6 3`).join("")}" stroke="${out===INK?COT:INK}" stroke-opacity=".6" stroke-width="1"/>`).join("")}</svg>`};
+/* D: the overhand knot. The simplest knot, drawn as one cord that changes dye inside the knot. */
+function D(o,w){
+  o=o||{};const bg=o.bg||QUA,c1=o.c1||WAL,c2=o.c2||RED,line=o.line||INK;
+  const N=480,S=11,P=[];for(let i=0;i<=N;i++){const t=i/N*2*Math.PI;P.push([Math.sin(t)+2*Math.sin(2*t),Math.cos(t)-2*Math.cos(2*t)])}
+  const pt=i=>`${(P[i][0]*S+40).toFixed(2)} ${(P[i][1]*S+40).toFixed(2)}`;
+  const seg=(a,b)=>{let d="";for(let i=a;i<=b;i++){const k=((i%N)+N)%N;d+=(i===a?"M":"L")+pt(k)+" "}return d};
+  // crossings
+  const X=[];for(let i=0;i<N;i++)for(let j=i+12;j<N;j++){if(i===0&&j>N-12)continue;
+    const [x1,y1]=P[i],[x2,y2]=P[i+1],[x3,y3]=P[j],[x4,y4]=P[(j+1)%(N+1)];const d=(x2-x1)*(y4-y3)-(y2-y1)*(x4-x3);if(Math.abs(d)<1e-9)continue;
+    const u=((x3-x1)*(y4-y3)-(y3-y1)*(x4-x3))/d,v=((x3-x1)*(y2-y1)-(y3-y1)*(x2-x1))/d;if(u>=0&&u<1&&v>=0&&v<1)X.push([i,j])}
+  const visits=[];X.forEach(([i,j])=>{visits.push(i);visits.push(j)});visits.sort((a,b)=>a-b);
+  const over=visits.filter((_,k)=>k%2===1);   // alternate over and under
+  const col=i=>(i<N/2)?c1:c2;
+  let g=`<path d="${seg(0,N)}" fill="none" stroke="${line}" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>`;
+  const runs=[[0,N/2,c1],[N/2,N,c2]];
+  runs.forEach(([a,b,c])=>{g+=`<path d="${seg(a,b)}" fill="none" stroke="${c}" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/>`});
+  over.forEach(i=>{const a=i-26,b=i+26,c=col(i%N);
+    g+=`<path d="${seg(a,b)}" fill="none" stroke="${bg}" stroke-width="19" stroke-linecap="butt"/><path d="${seg(a,b)}" fill="none" stroke="${line}" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="${seg(a,b)}" fill="none" stroke="${c}" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/>`});
+  return `<svg viewBox="0 0 80 80" ${w?`width="${w}" height="${w}"`:""} role="img" aria-label="Overhand knot mark">${g}</svg>`;
+}
+/* C helper: the wordmark itself carries the idea, each H is a cord bar between two uprights */
+const WM=(size,dark)=>`<span class="wm" style="font-size:${size}px" aria-label="Pashadhara">P<span>A</span>S<span class="hh a ${dark?"on-dark":""}"><i></i></span>A<span>D</span><span class="hh b ${dark?"on-dark":""}"><i></i></span>A<span>R</span>A</span>`.replace("P<span>A</span>S","PAS").replace("A<span>D</span>","AD").replace("A<span>R</span>A","ARA");
+const HG=(size,tone)=>`<span class="wm" style="font-size:${size}px;color:${tone}"><span class="hh a ${tone===COT?"on-dark":""}"><i></i></span></span>`;
+const HM=(size,tone)=>`<span class="wm" style="font-size:${size}px;color:${tone};letter-spacing:0"><span class="hh a ${tone===COT?"on-dark":""}" style="margin:0 .12em 0 0"><i></i></span><span class="hh b ${tone===COT?"on-dark":""}" style="margin:0"><i></i></span></span>`;
+const CUR=(w)=>`<svg viewBox="0 0 48 64" width="${w}" height="${w*64/48}" aria-hidden="true"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 54V9" stroke="#231F1B" stroke-width="11"/><path d="M14 54V9" stroke="#4a423a" stroke-width="8"/><path d="M14 10H27C39 10 39 31 27 31H14" stroke="#231F1B" stroke-width="11"/><path d="M14 10H27C39 10 39 31 27 31H14" stroke="#8C1D38" stroke-width="8"/><rect x="6.5" y="28" width="15" height="7" rx="1" fill="#231F1B" stroke="none"/></g></svg>`;
+
+const V=[
+ {id:"A",name:"The tally",
+  idea:"A cord tied by decimal place, set on a solid tile: tens, dollars, dimes, cents. The gap is a zero. It is a number you can read with your fingers, and it is the same code your lease cord uses, so the logo and the product speak one language.",
+  strengths:"The sturdiest at tiny sizes and the best app icon. Fully geometric and easy to reproduce in one colour.",
+  risk:"Reads as a symbol, not a letter. A stranger will not decode it, so it needs the wordmark beside it.",
+  big:A(INK,COT,RED,240),
+  lock:(d)=>`<div class="lock">${d?A(COT,INK,RED):A(INK,COT,RED)}<span class="word">Pashadhara</span></div>`,
+  small:(w)=>A(INK,COT,RED,w), smallDark:(w)=>A(COT,INK,RED,w), redApp:A(COT,INK,RED,56)},
+ {id:"B",name:"The stream, held",
+  idea:"Dhara is the stream and pasha is the bond. A plain line comes in from the left, is bound between two whipped bands, runs as a wave inside the hold, and leaves straight. Water kept in a channel. It is the most literal picture of what the product does to money.",
+  strengths:"A horizontal mark that sits well beside text and across a wide header. Calm, and clearly not a lettermark.",
+  risk:"Two thin whipped bands vanish below about 24 px. It leans on the wave, so it can read as a generic water or audio icon without the name.",
+  big:B(INK,RED,INK,WAL,240).replace('role="img"','width="480" height="240" role="img"'),
+  lock:(d)=>`<div class="lock">${d?B(COT,"#C2445F",COT,"#BDB8AB").replace(/<svg /,'<svg style="height:34px" '):B(INK,RED,INK,WAL).replace(/<svg /,'<svg style="height:34px" ')}<span class="word">Pashadhara</span></div>`,
+  small:(w)=>B(INK,RED,INK,WAL,w*1.6), smallDark:(w)=>B(COT,"#C2445F",COT,"#BDB8AB",w*1.6), redApp:B(COT,COT,COT,COT,90)},
+ {id:"C",name:"The two crossbars",
+  idea:"No symbol at all. The name does the work: both H crossbars in PASHADHARA are cord. The first is dyed walnut, the second cochineal, so the word itself says captured and free. Put them side by side and they are a small H H monogram.",
+  strengths:"Fully ownable and impossible to confuse with another logo. It costs nothing to add a mark, because the type is the mark. Nothing to redraw per size beyond the H.",
+  risk:"Depends on the typeface, so it must be built as outlines before it ships. Below 18 px only the H glyph survives.",
+  big:"",
+  bigHtml:(dark)=>WM(46,dark),
+  lock:(d)=>WM(24,d), small:()=>"", smallDark:()=>"", redApp:""},
+ {id:"D",name:"The overhand knot",
+  idea:"The simplest knot there is, drawn as one cord that changes dye as it passes through itself. Pasha means a binding, and a knot is the oldest binding. Walnut going in, cochineal coming out: what you spend, and what you still hold.",
+  strengths:"The most memorable and the most human. Reads at once as a knot, needs no explanation, and has real weight at a glance.",
+  risk:"Detail inside the crossings is lost below about 24 px, and a knot is a common symbol, so the two-dye cord is what carries the ownership.",
+  big:D({bg:QUA}),
+  lock:(d)=>`<div class="lock">${d?D({bg:INK,c1:COT,c2:"#C2445F",line:COT}):D({bg:"#E4E6DC"})}<span class="word">Pashadhara</span></div>`,
+  small:(w)=>D({bg:"#D5D8CE"},w), smallDark:(w)=>D({bg:INK,c1:COT,c2:"#C2445F",line:INK},w), redApp:D({bg:"#8C1D38",c1:COT,c2:COT,line:"#8C1D38"},70)}
+];
+const root=document.getElementById("vars");
+V.forEach((v,i)=>{
+  const dark=false;
+  const big=v.id==="C"?`<div style="font-size:0">${v.bigHtml(false)}</div>`:v.big;
+  const bigPane=v.id==="C"?`<div class="big" style="flex-direction:column;gap:36px">${WM(44,false)}<div style="display:flex;gap:36px;align-items:center">${HG(120,INK)}${HM(120,INK)}</div></div>`:`<div class="big">${big}</div>`;
+  const sizes=v.id==="C"?`<div class="sizes">${HG(16,INK)}${HG(24,INK)}${HG(32,INK)}${HG(48,INK)}</div>`:`<div class="sizes">${[16,24,32,48].map(w=>v.small(w)).join("")}</div>`;
+  const sizesD=v.id==="C"?`<div class="sizes">${HG(16,COT)}${HG(24,COT)}${HG(32,COT)}${HG(48,COT)}</div>`:`<div class="sizes">${[16,24,32,48].map(w=>v.smallDark(w)).join("")}</div>`;
+  const redApp=v.id==="C"?`<div style="font-size:0">${HM(56,COT)}</div>`:v.redApp;
+  root.insertAdjacentHTML("beforeend",`<section class="v"><div class="wrap">
+   <div class="head"><span class="no">${v.id}</span><h2>${v.name}</h2></div>
+   <div class="grid">${bigPane}<div class="txt"><p>${v.idea}</p><p class="muted"><strong>Strong at:</strong> ${v.strengths}</p><p class="muted"><strong>Watch out for:</strong> ${v.risk}</p></div></div>
+   <div class="apps">
+     <div class="app light">${v.lock(false)}<small>on cotton, lockup</small></div>
+     <div class="app ink">${v.id==="C"?WM(24,true):v.lock(true).replace('class="word"','class="word" style="color:#F3EFE2"')}<small>on walnut, lockup</small></div>
+     <div class="app red">${redApp}<small>app icon or favicon, one colour on cochineal</small></div>
+     <div class="app light">${sizes}<small>16, 24, 32, 48 px</small></div>
+     <div class="app ink">${sizesD}<small>same sizes on walnut</small></div>
+     <div class="app light"><div class="lock" style="gap:10px">${v.id==="C"?HG(26,INK):v.small(26)}<span style="font:500 .9375rem var(--mono)">pashadhara.example</span></div><small>browser tab</small></div>
+   </div></div></section>`);
+});
+root.insertAdjacentHTML("beforeend",`<section class="v cur"><div class="wrap"><div class="head"><span class="no">now</span><h2>The current mark, a P drawn as cord</h2></div>
+ <div class="grid"><div class="big">${CUR(150)}</div><div class="txt"><p>For comparison. A letter first, cord second, with a whipped junction and a cochineal loop. It is the most letter-like of the five and the closest to the lease cord, but also the most intricate and the one that reads smallest.</p></div></div></div></section>`);
+</script>
+</body>
+</html>

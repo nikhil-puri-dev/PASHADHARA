@@ -1,0 +1,15 @@
+{
+  "name": "@pashadhara/contract",
+  "private": true,
+  "type": "module",
+  "version": "0.5.1",
+  "scripts": {
+    "test:schema": "node schema.test.mjs",
+    "test:race": "node concurrency.test.mjs",
+    "lint:api": "npx -y @redocly/cli lint openapi.yaml"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.15",
+    "pg": "^8.23.1"
+  }
+}

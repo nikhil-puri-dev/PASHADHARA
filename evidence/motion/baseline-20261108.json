@@ -1,0 +1,138 @@
+{
+ "hero_desktop_1440": {
+  "frames": 716,
+  "avg_ms": 7,
+  "fps": 143.1,
+  "p95_ms": 7.1,
+  "over_50ms": 0,
+  "worst_ms": 48.7
+ },
+ "hero_dom_desktop_1440": {
+  "full_svg_replacements_in_5s": 4,
+  "svg_nodes": 136
+ },
+ "hero_phone_390_cpu4x": {
+  "frames": 719,
+  "avg_ms": 7,
+  "fps": 143.8,
+  "p95_ms": 7,
+  "over_50ms": 0,
+  "worst_ms": 13.9
+ },
+ "hero_dom_phone_390_cpu4x": {
+  "full_svg_replacements_in_5s": 4,
+  "svg_nodes": 132
+ },
+ "hover_dim_opacity_samples": [
+  0.42,
+  0.42,
+  0.42,
+  0.42,
+  0.42
+ ],
+ "hover_dim_nodes_replaced": 7,
+ "pendant_drop_samples": [
+  {
+   "t": 2038,
+   "opacity": 0.07,
+   "transform": "matrix(1, 0, 0, 1, 0, -24.128)"
+  },
+  {
+   "t": 2102,
+   "opacity": 0.62,
+   "transform": "matrix(1, 0, 0, 1, 0, -9.99241)"
+  },
+  {
+   "t": 2165,
+   "opacity": 0.87,
+   "transform": "matrix(1, 0, 0, 1, 0, -3.26697)"
+  },
+  {
+   "t": 2229,
+   "opacity": 0.96,
+   "transform": "matrix(1, 0, 0, 1, 0, -1.13292)"
+  },
+  {
+   "t": 2292,
+   "opacity": 0.99,
+   "transform": "matrix(1, 0, 0, 1, 0, -0.317857)"
+  },
+  {
+   "t": 2355,
+   "opacity": 1,
+   "transform": "matrix(1, 0, 0, 1, 0, -0.056505)"
+  },
+  {
+   "t": 2417,
+   "opacity": 1,
+   "transform": "matrix(1, 0, 0, 1, 0, -0.0013673)"
+  },
+  {
+   "t": 2478,
+   "opacity": 1,
+   "transform": "matrix(1, 0, 0, 1, 0, 0)"
+  }
+ ],
+ "animations_running_after_drop": 1,
+ "void_cut_samples": [
+  {
+   "opacity": 1,
+   "transform": "matrix(1, 0, 0, 1, 0, 0)",
+   "headline": "The hold is released."
+  },
+  {
+   "opacity": 0.99,
+   "transform": "matrix(1, 0.000611897, -0.000611897, 1, ",
+   "headline": "The hold is released."
+  },
+  {
+   "opacity": 0.95,
+   "transform": "matrix(0.999995, 0.00305395, -0.00305395",
+   "headline": "The hold is released."
+  },
+  {
+   "opacity": 0.8,
+   "transform": "matrix(0.999922, 0.0125148, -0.0125148, ",
+   "headline": "The hold is released."
+  },
+  {
+   "opacity": 0.54,
+   "transform": "matrix(0.999578, 0.0290554, -0.0290554, ",
+   "headline": "The hold is released."
+  },
+  {
+   "opacity": 0.48,
+   "transform": "matrix(0.999447, 0.0332592, -0.0332592, ",
+   "headline": "The hold is released."
+  },
+  {
+   "opacity": 0.45,
+   "transform": "matrix(0.999397, 0.0347178, -0.0347178, ",
+   "headline": "The hold is released."
+  },
+  {
+   "opacity": 0.45,
+   "transform": "matrix(0.999391, 0.0348995, -0.0348995, ",
+   "headline": "The hold is released."
+  }
+ ],
+ "route_change": {
+  "cls": 0,
+  "first_paint_ms": 116,
+  "headline_seen_each_16ms": [
+   "Two judges propose",
+   "Two judges propose",
+   "Two judges propose",
+   "Two judges propose",
+   "Two judges propose",
+   "Two judges propose",
+   "Two judges propose"
+  ],
+  "animations": 0,
+  "before_chars": 18050
+ },
+ "reduced_motion_home": {
+  "animations": 0,
+  "smooth_scroll": "auto"
+ }
+}
