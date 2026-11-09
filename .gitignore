@@ -34,6 +34,11 @@ demo/.artifacts/
 *.bak
 *.bak-*
 
+# Private working notes (owner rules, handoffs, inter-lane requests). Not part of the public repo.
+CLAUDE.md
+docs/handoff/
+docs/requests/
+
 # Local tool state and OS junk
 .claude/
 .DS_Store

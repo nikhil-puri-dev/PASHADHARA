@@ -68,7 +68,7 @@ test('fixture: signed webhook delivery survives a forged copy and reconciles onc
     },
   });
   function post(body: unknown, signature: string) {
-    return app.request('/webhooks/paypal', { method: 'POST', body: JSON.stringify(body), headers: {
+    return app.request('/api/webhooks/paypal', { method: 'POST', body: JSON.stringify(body), headers: {
       'content-type': 'application/json', 'paypal-auth-algo': 'fixture-hmac-sha256',
       'paypal-cert-url': 'https://fixture.invalid/cert', 'paypal-transmission-id': 'fixture-transmission',
       'paypal-transmission-time': '2026-11-09T00:00:00Z', 'paypal-transmission-sig': signature,

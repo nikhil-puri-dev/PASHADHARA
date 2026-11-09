@@ -34,8 +34,14 @@ for (const [path, methods] of Object.entries(contract.paths)) {
       const handlers = { [operation.operationId]: async () => ({ status: Number(status), ...(media && media !== 'text/event-stream' ? { body: sample(content[media].schema) } : {}) }) };
       const app = createRoutes(contract, handlers, async () => ({ fixture: true }));
       const requestBody = operation.requestBody?.required ? sample(operation.requestBody.content['application/json'].schema) : undefined;
-      const url = `http://localhost${path.replace(/\{[^}]+\}/g, uuid)}`;
-      const responseActual = await app.request(url, { method: method.toUpperCase(), headers: { 'content-type': 'application/json', 'X-Pashadhara-Lease': uuid, 'Idempotency-Key': 'fixture' }, ...(requestBody === undefined ? {} : { body: JSON.stringify(requestBody) }) });
+      const url = `http://localhost/api${path.replace(/\{[^}]+\}/g, uuid)}`;
+      const headers = new Headers({ 'content-type': 'application/json', 'X-Pashadhara-Lease': uuid, 'Idempotency-Key': 'fixture' });
+      if (operation.operationId === 'receivePayPalWebhook') {
+        for (const name of ['auth-algo', 'cert-url', 'transmission-id', 'transmission-sig', 'transmission-time']) {
+          headers.set('paypal-' + name, 'fixture');
+        }
+      }
+      const responseActual = await app.request(url, { method: method.toUpperCase(), headers, ...(requestBody === undefined ? {} : { body: JSON.stringify(requestBody) }) });
       assert.equal(responseActual.status, media === 'text/event-stream' ? 503 : Number(status));
     });
   }
@@ -44,17 +50,17 @@ for (const [path, methods] of Object.entries(contract.paths)) {
 test('invalid request is rejected before a handler runs', async () => {
   let called = false;
   const app = createRoutes(contract, { createLease: async () => { called = true; return { status: 201, body: {} }; } }, async () => ({}));
-  const response = await app.request('http://localhost/v1/leases', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ buyer_ref: 'fixture', cap_minor: 0 }) });
+  const response = await app.request('http://localhost/api/v1/leases', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ buyer_ref: 'fixture', cap_minor: 0 }) });
   assert.equal(response.status, 400); assert.equal(called, false);
 });
 
 test('invalid handler response is rejected', async () => {
   const app = createRoutes(contract, { listTools: async () => ({ status: 200, body: { tools: [{}] } }) }, async () => ({}));
-  const response = await app.request('http://localhost/v1/tools');
+  const response = await app.request('http://localhost/api/v1/tools');
   assert.equal(response.status, 500);
 });
 
 test('protected routes fail closed without an authenticated principal', async () => {
   const app = createRoutes(contract, {}, async () => null);
-  assert.equal((await app.request(`http://localhost/v1/leases/${uuid}`)).status, 401);
+  assert.equal((await app.request(`http://localhost/api/v1/leases/${uuid}`)).status, 401);
 });

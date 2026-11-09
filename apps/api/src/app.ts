@@ -3,6 +3,7 @@ import { createRoutes, type Authenticate, type Contract, type RouteHandler } fro
 import { readHandlers } from './read-handlers.ts';
 import { createMcp, unavailableKernelMeter, registeredTools } from './mcp.ts';
 import { webhookHandler, type WebhookDependencies } from './webhook.ts';
+import { logError } from './request-log.ts';
 
 /** Authentication callbacks must enforce lease and seller ownership, including body identifiers. */
 export function createApp(options: {
@@ -16,7 +17,11 @@ export function createApp(options: {
   const handlers = { ...readHandlers(options.db), ...options.handlers };
   if (options.webhook) handlers.receivePayPalWebhook = webhookHandler(options.webhook);
   const app = createRoutes(options.contract, handlers, options.authenticate);
+  app.use('/mcp', async (c, next) => { c.set('operation', 'mcp'); await next(); });
   app.route('/', createMcp(unavailableKernelMeter, options.resolveMcpLease, registeredTools(options.db)));
-  app.onError((_error, c) => c.json({ status: 'unavailable' }, 503));
+  app.onError((error, c) => {
+    logError(c.req.raw, c.get('operation') ?? 'apiRequest', error);
+    return c.json({ status: 'unavailable' }, 503);
+  });
   return app;
 }

@@ -3,8 +3,8 @@
   "lines": [
     {
       "field": "authorization.id",
-      "ours": "532a8f1f-fe12-4d05-bfd6-f8fd2cec8155",
-      "paypal": "532a8f1f-fe12-4d05-bfd6-f8fd2cec8155",
+      "ours": "9133fb63-c980-40ca-b75d-3e259fb0affa",
+      "paypal": "9133fb63-c980-40ca-b75d-3e259fb0affa",
       "match": true,
       "ours_provenance": "computed",
       "paypal_provenance": "fixture"
@@ -27,8 +27,8 @@
     },
     {
       "field": "capture.id",
-      "ours": "bc61b476-f668-4459-abb5-3c5dd87c2dee",
-      "paypal": "bc61b476-f668-4459-abb5-3c5dd87c2dee",
+      "ours": "138ddd8c-c3b7-4f34-8a59-f3ed8f7d37ca",
+      "paypal": "138ddd8c-c3b7-4f34-8a59-f3ed8f7d37ca",
       "match": true,
       "ours_provenance": "computed",
       "paypal_provenance": "fixture"

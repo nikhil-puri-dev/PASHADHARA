@@ -1,10 +1,13 @@
 import { Hono } from 'hono';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import addFormats, { type FormatsPlugin } from 'ajv-formats';
+import { ApiError, logError, type ApiContext } from './request-log.ts';
+import { hasWebhookSignature } from './webhook.ts';
 
 type Schema = Record<string, any>;
 export type Contract = { paths: Record<string, Record<string, any>>; components: Schema; security?: Schema[] };
-export type RouteInput = { params: Record<string, string>; query: Record<string, string>; body: unknown; request: Request; principal: unknown };
+export const API_BASE_PATH = '/api';
+export type RouteInput = { params: Record<string, string>; query: Record<string, string>; body: unknown; rawBody?: string; request: Request; principal: unknown };
 export type RouteResult = { status: number; body?: unknown; contentType?: string };
 export type RouteHandler = (input: RouteInput) => Promise<RouteResult>;
 export type Authenticate = (requirements: Schema[], request: Request, operationId: string, params: Record<string, string>, body: unknown) => Promise<unknown | null>;
@@ -12,6 +15,28 @@ export type Authenticate = (requirements: Schema[], request: Request, operationI
 const problem = (status: number, title: string) => new Response(JSON.stringify({ type: 'about:blank', title, status }), {
   status, headers: { 'content-type': 'application/problem+json' },
 });
+const maxBodyBytes = 64 * 1024;
+const maxBuyerRefLength = 128;
+
+async function boundedBody(request: Request) {
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > maxBodyBytes) {
+        void reader.cancel().catch(() => {});
+        return null;
+      }
+      if (chunk.value.byteLength) chunks.push(chunk.value);
+    }
+  } finally { reader.releaseLock(); }
+  return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks, bytes));
+}
 
 function dereference(contract: Contract, value: Schema): Schema {
   if (!value.$ref) return value;
@@ -21,7 +46,7 @@ function dereference(contract: Contract, value: Schema): Schema {
 
 /** All unspecified operations fail closed until a real handler is installed. */
 export function createRoutes(contract: Contract, handlers: Record<string, RouteHandler>, authenticate: Authenticate) {
-  const app = new Hono();
+  const app = new Hono<ApiContext>().basePath(API_BASE_PATH);
   const ajv = new Ajv2020({ strict: false, allErrors: true, validateFormats: true });
   (addFormats as unknown as FormatsPlugin)(ajv);
   ajv.addFormat('int64', { type: 'number', validate: Number.isSafeInteger });
@@ -31,6 +56,8 @@ export function createRoutes(contract: Contract, handlers: Record<string, RouteH
   for (const [path, methods] of Object.entries(contract.paths)) {
     for (const [method, operation] of Object.entries(methods)) {
       if (!['get', 'post', 'put', 'patch', 'delete'].includes(method)) continue;
+      const name: string = operation.operationId;
+      const limitBody = name === 'receivePayPalWebhook' || name === 'createLease';
       const escaped = path.replace(/~/g, '~0').replace(/\//g, '~1');
       const base = `/paths/${escaped}/${method}`;
       const bodySchema = operation.requestBody?.content?.['application/json']?.schema
@@ -47,15 +74,27 @@ export function createRoutes(contract: Contract, handlers: Record<string, RouteH
         }
       }
       app.on(method.toUpperCase(), path.replace(/\{([^}]+)\}/g, ':$1'), async c => {
+        c.set('operation', name);
+        if (name === 'receivePayPalWebhook' && !hasWebhookSignature(c.req.raw.headers)) {
+          return problem(400, 'Missing PayPal signature headers');
+        }
         const params: Record<string, string> = c.req.param();
         let body: unknown;
+        let rawBody: string | undefined;
         if (bodySchema) {
-          const text = await c.req.text();
-          if (!text && operation.requestBody?.required) return problem(400, 'Request body required');
-          if (text) {
+          let text: string | null;
+          try { text = limitBody ? await boundedBody(c.req.raw) : await c.req.text(); }
+          catch { return problem(400, 'Unreadable request body'); }
+          if (text === null) return problem(413, 'Request body exceeds 64 KB');
+          rawBody = text;
+          if (!rawBody && operation.requestBody?.required) return problem(400, 'Request body required');
+          if (rawBody) {
             if (!c.req.header('content-type')?.toLowerCase().startsWith('application/json')) return problem(415, 'Expected application/json');
-            try { body = JSON.parse(text); } catch { return problem(400, 'Invalid JSON'); }
+            try { body = JSON.parse(rawBody); } catch { return problem(400, 'Invalid JSON'); }
             if (!bodySchema(body)) return problem(400, 'Invalid request body');
+            if (name === 'createLease' && [...(body as { buyer_ref: string }).buyer_ref].length > maxBuyerRefLength) {
+              return problem(400, 'buyer_ref exceeds 128 characters');
+            }
           }
         }
         const query: Record<string, string> = c.req.query();
@@ -75,17 +114,29 @@ export function createRoutes(contract: Contract, handlers: Record<string, RouteH
           if (principal === null) return problem(401, 'Unauthorized');
         }
         const handler = handlers[operation.operationId];
-        if (!handler) return problem(503, `Not implemented: ${operation.operationId}`);
+        if (!handler) {
+          logError(c.req.raw, name, new ApiError(name === 'receivePayPalWebhook' ? 'Missing webhook configuration' : 'Operation unavailable'));
+          return problem(503, `Not implemented: ${name}`);
+        }
         let result: RouteResult;
-        try { result = await handler({ params, query, body, request: c.req.raw, principal }); }
-        catch { return problem(500, 'Operation failed'); }
+        try { result = await handler({ params, query, body, rawBody, request: c.req.raw, principal }); }
+        catch (error) {
+          logError(c.req.raw, name, error);
+          return problem(500, 'Operation failed');
+        }
         const response = operation.responses[String(result.status)];
-        if (!response) return problem(500, 'Undocumented response');
+        if (!response) {
+          logError(c.req.raw, name, new ApiError('Undocumented response'));
+          return problem(500, 'Undocumented response');
+        }
         const contents = dereference(contract, response).content ?? {};
         const contentType = result.contentType ?? Object.keys(contents)[0];
         if (!contentType) return new Response(null, { status: result.status });
         const entry = responseValidators.get(`${result.status}:${contentType}`);
-        if (entry && !entry.validate(result.body)) return problem(500, 'Invalid operation response');
+        if (entry && !entry.validate(result.body)) {
+          logError(c.req.raw, name, new ApiError('Invalid operation response'));
+          return problem(500, 'Invalid operation response');
+        }
         if (!entry || contentType === 'text/event-stream') return problem(503, 'Response type not implemented');
         return new Response(JSON.stringify(result.body), { status: result.status, headers: { 'content-type': contentType } });
       });
