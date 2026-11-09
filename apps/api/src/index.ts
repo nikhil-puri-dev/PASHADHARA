@@ -11,11 +11,14 @@ import { API_BASE_PATH, type Contract } from './routes.ts';
 import { webhookStore } from './webhook-store.ts';
 import { ApiError, logError, requestId, type ApiContext } from './request-log.ts';
 
+declare const __PASHADHARA_OPENAPI_YAML__: string | undefined;
+
 const app = new Hono<ApiContext>().basePath(API_BASE_PATH);
 let api: ReturnType<typeof createApp> | undefined;
 let contract: Contract | undefined;
 const loadContract = () => contract ??= parse(
-  readFileSync(new URL('../../../packages/contract/openapi.yaml', import.meta.url), 'utf8'),
+  (typeof __PASHADHARA_OPENAPI_YAML__ === 'string' && __PASHADHARA_OPENAPI_YAML__)
+    || readFileSync(new URL('../../../packages/contract/openapi.yaml', import.meta.url), 'utf8'),
 ) as Contract;
 
 app.get('/health', c => c.json({ status: 'ok' }));

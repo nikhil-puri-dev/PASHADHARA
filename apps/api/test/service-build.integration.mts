@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { cp, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { getRequestListener } from '@hono/node-server';
+import { parse } from 'yaml';
 
-test('Vercel Services selects the prefixed API and its Hono bundle runs in production mode', async t => {
+test('the built Vercel API serves requests without node_modules', async t => {
   const config = JSON.parse(await readFile(new URL('../../../vercel.json', import.meta.url), 'utf8'));
   const api = config.services.api;
   assert.equal(api.root, 'apps/api');
@@ -14,10 +19,20 @@ test('Vercel Services selects the prefixed API and its Hono bundle runs in produ
     { source: '/api/:path*', destination: { service: 'api' } },
     { source: '/(.*)', destination: { service: 'web' } },
   ]);
-  const handler = `${api.outputDirectory}/index.mjs`;
-  const packagedContract = new URL(`../${api.functions[handler].includeFiles}`, import.meta.url);
-  assert.deepEqual(await readFile(packagedContract),
-    await readFile(new URL('../../../packages/contract/openapi.yaml', import.meta.url)));
+  const contract = parse(await readFile(new URL('../../../packages/contract/openapi.yaml', import.meta.url), 'utf8'));
+  const scratch = await mkdtemp(join(await realpath(tmpdir()), 'pashadhara-api-'));
+  const originalCwd = process.cwd();
+  t.after(async () => {
+    process.chdir(originalCwd);
+    await rm(scratch, { recursive: true, force: true });
+  });
+  for (let dir = scratch; ; dir = dirname(dir)) {
+    assert.ok(!existsSync(join(dir, 'node_modules')), `node_modules found at ${dir}`);
+    if (dir === dirname(dir)) break;
+  }
+  await cp(new URL(`../${api.outputDirectory}/`, import.meta.url), scratch, { recursive: true });
+  assert.ok(!existsSync(join(scratch, 'node_modules')), 'The build output contains node_modules');
+  process.chdir(scratch);
   Object.assign(process.env, {
     NODE_ENV: 'production', DATABASE_URL: 'postgres://kernel_login@127.0.0.1:15434/postgres',
     LEASE_TOKEN_SECRET: 'fixture-lease'.padEnd(32, 'x'), ADMIN_KEY: 'fixture-admin'.padEnd(32, 'x'),
@@ -29,7 +44,7 @@ test('Vercel Services selects the prefixed API and its Hono bundle runs in produ
     assert.equal(new URL(input).hostname, '127.0.0.1', 'This fixture cannot contact PayPal');
     return fetchLocal(input, init);
   });
-  const { default: app } = await import(new URL(`../${handler}`, import.meta.url).href);
+  const { default: app } = await import(pathToFileURL(join(scratch, 'index.mjs')).href);
   const server = createServer(getRequestListener(app.fetch));
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
@@ -39,14 +54,17 @@ test('Vercel Services selects the prefixed API and its Hono bundle runs in produ
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
   const origin = `http://127.0.0.1:${address.port}`;
-  assert.equal((await fetch(origin + '/api/health')).status, 200);
+  const health = await fetch(origin + '/api/health');
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), { status: 'ok' });
   assert.equal((await fetch(origin + '/health')).status, 404);
+  const spec = await fetch(origin + '/api/openapi.json');
+  assert.equal(spec.status, 200);
+  assert.deepEqual(await spec.json(), { ...contract, servers: [{ url: '/api' }] });
   const unauthorized = await fetch(origin + '/api/v1/leases');
   assert.equal(unauthorized.status, 401);
   assert.match(unauthorized.headers.get('x-request-id') ?? '', /^[0-9a-f-]{36}$/);
   assert.equal((await fetch(origin + '/api')).status, 404);
-  const spec = await (await fetch(origin + '/api/openapi.json')).json() as { servers: { url: string }[] };
-  assert.deepEqual(spec.servers, [{ url: '/api' }]);
   assert.equal((await fetch(origin + '/api/webhooks/paypal', {
     method: 'POST', headers: {
       'content-type': 'application/json', 'paypal-auth-algo': 'fixture', 'paypal-cert-url': 'fixture',

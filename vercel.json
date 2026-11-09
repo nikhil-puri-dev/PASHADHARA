@@ -5,12 +5,7 @@
       "root": "apps/api",
       "framework": "hono",
       "buildCommand": "pnpm build",
-      "outputDirectory": "dist/apps/api/src",
-      "functions": {
-        "dist/apps/api/src/index.mjs": {
-          "includeFiles": "dist/packages/contract/openapi.yaml"
-        }
-      }
+      "outputDirectory": "dist/apps/api/src"
     },
     "web": { "root": "apps/web", "framework": "nextjs" }
   },
