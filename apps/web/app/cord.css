@@ -135,11 +135,9 @@ h1 .num,.big .num,.payout.num{font-family:var(--font-ui);font-variant-numeric:ta
 .readout strong{font-weight:700}
 .band{background:var(--lint);margin-top:var(--s8);padding-block:var(--s7) var(--s8)}
 body.lease .band{contain:layout}
-.band .ledger{grid-column:1 / span 8}
-.band .controls{grid-column:9 / span 4}
+.band .ledger{grid-column:1 / -1}
 .band .confirm{background:var(--quarry)}
 .band tbody tr:nth-child(odd) td{background:rgba(35,31,27,.045)}
-.controls>*+*{margin-top:var(--s5)}
 .btnrow{display:flex;gap:var(--s3);flex-wrap:wrap}
 h2.sec{font-size:1.5rem;margin-bottom:var(--s4)}
 table{border-collapse:collapse;width:100%}
@@ -244,8 +242,7 @@ footer p{max-width:44rem}
 .slimcord svg{display:block;width:100%;height:auto}
 
 @media (max-width:900px){
-  .lead,.honor,.band .ledger,.band .controls{grid-column:1 / -1}
-  .band .controls{margin-top:var(--s6)}
+  .lead,.honor,.band .ledger{grid-column:1 / -1}
   .two,.proofhead,.approve{grid-template-columns:minmax(0,1fr)}
   .three{grid-template-columns:minmax(0,1fr);gap:var(--s6)}
   .approve{gap:var(--s6)}
@@ -517,7 +514,7 @@ body[data-ground="pearl"] .gl{opacity:.36}
 .leasetabs a{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s3);text-decoration:none;font-weight:600;font-size:.9375rem;text-transform:none;letter-spacing:0;border-radius:0;border-bottom:3px solid transparent;margin-bottom:-1px;background:none}
 .leasetabs a[aria-current="page"]{border-bottom-color:var(--cochineal);font-weight:700;background:none}
 @media (hover:hover) and (pointer:fine){.leasetabs a:hover{background:var(--lint)}}
-.btn[aria-current="page"]{background:var(--cochineal);border-color:var(--cochineal);color:var(--cotton)}
+.btn[aria-current="page"]{background:var(--cochineal);border-color:var(--cochineal);color:#F3EFE2}
 .acts .btn.sm{margin-left:var(--s2)}
 
 /* the main interactive moment: budget, cap state, refusal */
@@ -562,7 +559,92 @@ body[data-mode="site"] .proofpage{padding-top:var(--s6)}
   body[data-mode="app"] .bar nav{order:3;flex:1 1 100%}
   body[data-mode="app"] .acts .who,body[data-mode="app"] .acts .link-btn.so{order:4}
 }
-@media (max-width:900px){
-  /* the interactive moment sits right under the cord, the ledger follows */
-  .band .controls{order:-1;margin-top:0;margin-bottom:var(--s7)}
+
+/* step 4: phone */
+.scrub{display:none}
+@media (min-width:721px){.leasetabs .lt-m{display:none}}
+@media (max-width:720px){
+  .leasetabs .lt-d{display:none}
+  .leasetabs .lt-label{color:var(--walnut);font-weight:600}
+  /* app header: row one brand and New lease, row two sections and view controls */
+  body[data-mode="app"] .bar nav{order:3;flex:1 1 auto}
+  body[data-mode="app"] .bar nav a{padding:0 var(--s2);letter-spacing:.06em}
+  body[data-mode="app"] .acts .who{display:none}
+  body[data-mode="app"] .acts .link-btn.so{order:4;padding:0 var(--s2);letter-spacing:.06em}
+  /* site header: brand and Get started, then How it works, FAQ, Proof, Log in */
+  body[data-mode="site"] .bar{flex-wrap:wrap;gap:var(--s1) var(--s3)}
+  body[data-mode="site"] .acts{display:contents}
+  body[data-mode="site"] .brand{order:1;margin-right:auto}
+  body[data-mode="site"] .acts .btn{order:2}
+  body[data-mode="site"] .bar nav{display:block;order:3;flex:0 1 auto}
+  body[data-mode="site"] .bar nav a{padding:0 var(--s2);letter-spacing:.06em}
+  body[data-mode="site"] .bar nav li:nth-child(2){display:none}
+  body[data-mode="site"] .acts .nav-login{display:inline-flex;order:4;padding:0 var(--s2);letter-spacing:.06em}
+  footer li a{min-height:44px}
+  /* the thumb handle: drag along the cord to read each pendant */
+  .scrub{display:block;position:absolute;right:0;width:44px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+  .scrub::before{content:"";position:absolute;left:21px;top:0;bottom:0;width:2px;background:repeating-linear-gradient(to bottom,var(--umber) 0 3px,transparent 3px 8px);opacity:.6}
+  .scrub .thumb{position:absolute;left:0;top:var(--ty,0);width:44px;height:44px;border-radius:10px;background:var(--cotton);border:1.5px solid var(--walnut);display:grid;align-content:center;justify-items:center;gap:4px;box-shadow:0 2px 4px rgba(35,31,27,.28)}
+  .scrub .thumb i{display:block;width:9px;height:9px;border:solid var(--walnut);border-width:2.5px 0 0 2.5px;transform:rotate(45deg) translate(2px,2px)}
+  .scrub .thumb i:nth-child(2){display:none}
+  .scrub .thumb i:nth-child(3){border-width:0 2.5px 2.5px 0;transform:rotate(45deg) translate(-2px,-2px)}
+  .scrub:focus-visible{outline-offset:-2px;border-radius:10px}
+}
+@media (max-width:720px) and (prefers-reduced-motion:no-preference){.scrub .thumb{transition:top 120ms var(--ease-out)}}
+
+/* tap targets: 44 by 44 at least */
+nav a,.acts .nav-login,.acts .link-btn.so,.link-btn,.leasetabs a{min-width:44px;justify-content:center}
+.acts .btn.sm{min-width:44px}
+.wide:focus-visible{outline-offset:-2px}
+footer li a{min-width:44px}
+body[data-theme="dark"] .btn[aria-current="page"]{color:#F3EFE2}
+
+/* step 4 review fixes */
+:root{--danger:var(--cochineal)}
+body[data-theme="dark"]{--danger:#E58AA0}
+#voidOpen{border-color:var(--danger);color:var(--danger)}
+.lead h1{font-size:clamp(2.2rem,5vw,4.4rem)}
+/* actions sit right under the cord */
+.controls{grid-column:1 / -1;display:grid;grid-template-columns:repeat(auto-fit,minmax(15.5rem,1fr));gap:var(--s5) var(--s6);align-items:start;margin-top:var(--s5)}
+.controls .moment{grid-column:1 / -1;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:var(--s6);align-items:start}
+.mcol>*+*{margin-top:var(--s4)}
+.moment>*+*{margin-top:0}
+@media (max-width:900px){.controls .moment{grid-template-columns:minmax(0,1fr);gap:var(--s5)}}
+/* the key: what the three cord states look like */
+.key{display:inline-flex;gap:var(--s4);align-items:center;flex-wrap:wrap;font-size:.9375rem;color:var(--umber);margin-right:auto}
+.key>span{display:inline-flex;align-items:center;white-space:nowrap}
+.key .sw{display:inline-block;width:18px;height:10px;border:1px solid var(--walnut);margin-right:6px}
+.key .sw.gold{background:#C8A24A}.key .sw.owed{background:#F3EFE2}.key .sw.free{background:#8C1D38}
+.herotools,.cordtools{align-items:center}
+.herotools .key{order:-1;margin-right:var(--s5)}
+.cordtools{justify-content:space-between}
+/* the approval notice reads before the button */
+.notice{margin-top:var(--s5);padding:var(--s3) var(--s4);background:var(--lint);display:inline-block;max-width:34rem}
+.tabs{gap:var(--s1)}
+.tabs button{padding:0 var(--s3)}
+/* phone: tables become stacked rows, every number stays on screen */
+@media (max-width:720px){
+  .rt thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .rt,.rt tbody,.rt tfoot{display:block;width:100%}
+  .rt tr{display:grid;column-gap:var(--s2);padding:var(--s2) var(--s2);align-items:baseline}
+  .rt td{display:block;padding:var(--s1) 0;min-width:0;overflow-wrap:anywhere}
+  .rt tbody tr:nth-child(odd){background:rgba(35,31,27,.045)}
+  .rt tbody tr:nth-child(odd) td,.band tbody tr:nth-child(odd) td{background:none}
+  .ledgerrt tr{grid-template-columns:minmax(0,1fr) auto}
+  .ledgerrt td:nth-child(2),.ledgerrt td:nth-child(4){text-align:right}
+  .ledgerrt tfoot td:nth-child(3){display:none}
+  .proofrt tr{grid-template-columns:2.2rem minmax(0,1fr) auto auto}
+  .proofrt tbody td:nth-child(1){grid-area:1/1}
+  .proofrt tbody td:nth-child(2){grid-area:1/2/2/4}
+  .proofrt tbody td:nth-child(3){grid-area:1/4;text-align:right}
+  .proofrt tbody td:nth-child(4){grid-area:2/2}
+  .proofrt tbody td:nth-child(5){grid-area:2/3}
+  .proofrt tbody td:nth-child(5)::before,.proofrt tfoot td:nth-child(3)::before{content:"fee ";color:var(--umber)}
+  .proofrt tbody td:nth-child(6){grid-area:2/4;text-align:right}
+  .proofrt tfoot td:nth-child(1){grid-column:1 / -1;font-weight:600}
+  .proofrt tfoot td:nth-child(2){grid-area:2/2}
+  .proofrt tfoot td:nth-child(3){grid-area:2/3}
+  .proofrt tfoot td:nth-child(4){grid-area:2/4;text-align:right}
+  .proofrt td.r{text-align:left}
+  .proofrt tbody td:nth-child(4),.proofrt tbody td:nth-child(5){text-align:left}
 }

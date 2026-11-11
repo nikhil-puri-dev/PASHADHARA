@@ -15,7 +15,9 @@ const fmt=c=>"$"+(c/100).toFixed(2);
 const feeC=c=>Math.round(49+0.0349*c);          // computed model, three measured points fit it
 const $=(s,r=document)=>r.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
-const tagHtml=(k,t)=>`<span class="tag ${k}">${t||k}</span>`;
+const TAG_TIP={measured:"Came back from a PayPal sandbox call",computed:"Our code derived it from measured data",documented:"What PayPal's docs say. We have not tested it",fixture:"Sample data for this prototype",recorded:"Recorded from a real sandbox run"};
+const tagHtml=(k,t)=>`<span class="tag ${k}" title="${TAG_TIP[k]||""}">${t||k}</span>`;
+const KEY_HTML=`<span class="key" role="group" aria-label="Key"><span><i class="sw gold"></i>captured</span><span><i class="sw owed"></i>owed</span><span><i class="sw free"></i>free to spend</span></span>`;
 /* a row: words hard left, tags hard right */
 const trow=(msg,tags,cls="")=>`<div class="trow${cls?" "+cls:""}"><span class="msg">${msg}</span><span class="tags">${tags}</span></div>`;
 const GOLD="#C8A24A";
@@ -245,9 +247,10 @@ function cordSVG(o,retained){
   // a pendant hangs where its call was paid on the cord, with a minimum gap so knots never touch
   const xs=[]; let cum=0, prev=-1e9; const gap=vertical?40:38;
   items.forEach(it=>{cum+=it.c; let x=x0+cum*k; if(x<prev+gap)x=prev+gap; x=Math.min(x,x0+L-12); xs.push(x); prev=x;});
-  let ticks="";
+  let ticks="", vticks="";
   for(let v=0;!retained&&v<=cap;v+=(cap>4000?2000:500)){const tx=x0+v*k;
     ticks+=`<line x1="${tx}" y1="${y0+10}" x2="${tx}" y2="${y0+19}" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2"/>`;
+    if(vertical&&v>0)vticks+=`<text x="${y0-15}" y="${tx+6}" text-anchor="end" font-family="Spline Sans Mono,monospace" font-size="${o.tickFs||18}" class="tk">$${v/100}</text>`;
     if(!vertical)ticks+=`<text x="${v===0?tx+16:tx}" y="${y0-22}" text-anchor="${v===0?"start":v===cap?"end":"middle"}" font-family="Spline Sans Mono,monospace" font-size="${o.tickFs||Math.max(14,Math.round(14*1176/Math.max(320,Math.min(innerWidth,1360)-2*Math.min(56,innerWidth*.04))))}" class="tk"><title>$${v/100} of the $${cap/100} hold</title>$${v/100}</text>`;}
   for(let i=0;i<items.length;i++){
     const x=xs[i], it=items[i];
@@ -287,7 +290,7 @@ function cordSVG(o,retained){
     ?`<g>${ticks}</g><g filter="${soft}">${loop}</g><g class="pendants">${pens}</g><g class="rail">${main}${end}</g><g class="cord-fx" aria-hidden="true"></g>`
     :`<g>${ticks}</g><g filter="${soft}">${loop}${pens}${main}${end}</g><g class="cord-fx" aria-hidden="true"></g>`;
   if(vertical){
-    return `<svg viewBox="0 0 ${H} ${x0+L+40}" role="img" aria-label="${esc(o.label)}">${retained?"":defs}<g transform="matrix(0 1 1 0 0 0)">${inner}</g></svg>`;
+    return `<svg viewBox="0 0 ${H} ${x0+L+40}" role="img" aria-label="${esc(o.label)}">${retained?"":defs}<g transform="matrix(0 1 1 0 0 0)">${inner}</g>${retained?"":vticks}</svg>`;
   }
   return `<svg viewBox="0 0 ${x0+L+40} ${H}" role="img" aria-label="${esc(o.label)}">${retained?"":defs}${inner}</svg>`;
 }
@@ -442,7 +445,6 @@ function slimSVG(o){
 /* =============================================================
    Chrome
 ============================================================= */
-const ROUTES=[["lease","Lease"],["escrow","Escrow"],["settle","Settle"],["proof","Proof"]];
 const KEY="pashadhara-session";
 /* Live mode: reads one lease from the API with its lease token. Entered with /lease#live=<lease id>.<token>.
    The fragment never reaches a server and is stripped from the address bar at once. */
@@ -540,7 +542,7 @@ function renderNav(r){
 }
 function leaseTabs(v){
   const item=(k,l,href)=>`<li><a href="${href}"${v===k?' aria-current="page"':""}>${l}</a></li>`;
-  return `<div class="wrap"><nav class="leasetabs" aria-label="This lease"><span class="lt-label">This lease</span><ul>${item("lease","Cord","/lease")}${S.user?.live?"":item("settle","Settle","/settle")}${item("escrow","Escrow","/escrow")}</ul></nav></div>`;
+  return `<div class="wrap"><nav class="leasetabs" aria-label="This lease"><span class="lt-label"><span class="lt-d">This lease</span><span class="lt-m">${esc(S.user?.showcase?"Showcase lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease":S.user?.name?"Your lease":"Lease")}</span></span><ul>${item("lease","Cord","/lease")}${S.user?.live?"":item("settle","Settle","/settle")}${item("escrow","Escrow","/escrow")}</ul></nav></div>`;
 }
 function slimBlock(){
   const s=sums();
@@ -569,11 +571,11 @@ V.lease=()=>{
   return `<div class="wrap"><div class="stage" id="leaseStage">
     <div class="lead" id="lead"></div>
     <aside class="honor" id="honor"></aside>
-    <div class="cordwrap"><div id="cord"></div><div class="readout" id="readout" aria-live="off"></div><div class="cordtools"><button class="link-btn" data-act="sound" aria-pressed="false">Sound off</button></div></div>
+    <div class="cordwrap"><div id="cord"></div><div class="scrub" id="scrub" role="slider" aria-orientation="vertical" aria-label="Move along the cord" tabindex="0" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="No call selected"><span class="thumb" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="readout" id="readout" aria-live="off"></div><div class="cordtools">${KEY_HTML}<button class="link-btn" data-act="sound" aria-pressed="false">Sound off</button></div></div>
+    <section class="controls" id="controls" aria-label="Lease actions"></section>
   </div></div>
   <div class="band"><div class="wrap"><div class="stage">
     <section class="ledger" aria-labelledby="ledh"><h2 class="sec" id="ledh">The ledger, read as a table</h2><div id="ledger"></div></section>
-    <section class="controls" id="controls" aria-label="Lease actions"></section>
   </div></div></div>`;
 };
 function paintLead(){
@@ -599,7 +601,7 @@ function paintLead(){
     return;
   }
   el.innerHTML=`<h1><span class="num motion-value">${amount}</span> is free to spend.</h1>
-   <p class="sub trow"><span class="msg">You approved ${fmt(CAP)} once. <span class="balance-copy">${balance}</span> The gateway refuses any call that would pass the cap.</span><span class="tags">${liveTag()}</span></p>`;
+   <p class="sub"><span class="msg">You approved ${fmt(CAP)} once. <span class="balance-copy">${balance}</span> The gateway refuses any call that would pass the cap.</span> ${liveTag()}</p>`;
 }
 function paintHonor(){
   const el=$("#honor"); if(!el)return;
@@ -608,12 +610,55 @@ function paintHonor(){
   if(S.user&&S.user.live){el.innerHTML=`<h2>72 hour honor period, then best effort</h2>${trow(`<span class="help">Honored until ${esc(S.liveHonor||"unknown")} UTC.</span>`,liveTag())}`;return}
   el.innerHTML=`<h2>72 hour honor period, then best effort</h2>
    <div class="rulebar" aria-hidden="true"><i style="left:0;width:${pct(72)}"></i><b style="left:0"></b><b style="left:${pct(72)}"></b><em style="left:${pct(72)};width:${(100-72/96*100).toFixed(1)}%"></em><b style="left:${pct(9)};top:2px;height:25px;width:3px"></b></div>
-   <p class="help">Hour 9 of 72. Day 4 opens a reauthorize window that PayPal says is allowed once.</p>
-   <div class="tags tagline">${tagHtml("fixture","fixture clock")}${tagHtml("computed","proposal, not verified")}</div>`;
+   <p class="help">Hour 9 of 72. Day 4 opens a reauthorize window that PayPal says is allowed once. ${tagHtml("fixture","fixture clock")} ${tagHtml("computed","proposal, not verified")}</p>`;
 }
 // after a void the uncaptured pendants have no cord to hang from, so only captured ones stay drawn
 function itemsForLease(){return S.calls.filter(k=>S.status==="voided"?k.st==="captured":true).slice(0,NSLOT)}
 function isVertical(){return matchMedia("(max-width:720px)").matches}
+function scrubPoints(){
+  const svg=$("#cord svg"); if(!svg)return [];
+  const r=svg.getBoundingClientRect();
+  return [...svg.querySelectorAll(".pendants .hit")].map(h=>{const b=h.getBoundingClientRect();return {id:+h.dataset.id,y:b.top+b.height/2-r.top}}).sort((a,b)=>a.y-b.y);
+}
+function paintScrub(){
+  const sc=$("#scrub"), svg=$("#cord svg"); if(!sc||!svg||!isVertical())return;
+  const r=svg.getBoundingClientRect(), w=sc.parentElement.getBoundingClientRect();
+  sc.style.top=(r.top-w.top)+"px"; sc.style.height=r.height+"px";
+  const pts=scrubPoints(), i=pts.findIndex(p=>p.id===S.ui.sel), k=S.calls.find(c=>c.id===S.ui.sel);
+  sc.style.setProperty("--ty",Math.max(0,Math.min(r.height-44,(i>=0?pts[i].y:22)-22))+"px");
+  sc.setAttribute("aria-valuemax",String(pts.length)); sc.setAttribute("aria-valuenow",String(i+1));
+  sc.setAttribute("aria-valuetext",k?`Call ${k.id}, ${k.tool}, ${fmt(k.c)}, ${k.st}`:"No call selected");
+}
+function scrubTo(id){
+  if(id===S.ui.sel)return;
+  S.ui.sel=id; S.ui.hint=true; paintSelection();
+  if(navigator.vibrate&&navigator.userActivation?.hasBeenActive){try{navigator.vibrate(6)}catch(e){}}
+}
+let scrubbing=false;
+on(document,"pointerdown",e=>{
+  const sc=e.target.closest?.("#scrub"); if(!sc)return;
+  e.preventDefault(); scrubbing=true; sc.focus({preventScroll:true}); sc.setPointerCapture?.(e.pointerId);
+  const y=e.clientY-sc.getBoundingClientRect().top, pts=scrubPoints();
+  if(pts.length)scrubTo(pts.reduce((a,b)=>Math.abs(b.y-y)<Math.abs(a.y-y)?b:a).id);
+});
+on(document,"pointermove",e=>{
+  if(!scrubbing)return;
+  const sc=$("#scrub"); if(!sc)return;
+  const y=e.clientY-sc.getBoundingClientRect().top, pts=scrubPoints();
+  if(pts.length)scrubTo(pts.reduce((a,b)=>Math.abs(b.y-y)<Math.abs(a.y-y)?b:a).id);
+});
+on(document,"pointerup",()=>{scrubbing=false});
+on(document,"pointercancel",()=>{scrubbing=false});
+on(document,"keydown",e=>{
+  if(!e.target.closest?.("#scrub"))return;
+  const pts=scrubPoints(); if(!pts.length)return;
+  const i=pts.findIndex(p=>p.id===S.ui.sel);
+  const go=n=>{e.preventDefault();scrubTo(pts[Math.max(0,Math.min(pts.length-1,n))].id)};
+  if(e.key==="ArrowDown"||e.key==="ArrowRight")go(i<0?0:i+1);
+  else if(e.key==="ArrowUp"||e.key==="ArrowLeft")go(i<0?0:i-1);
+  else if(e.key==="Home")go(0); else if(e.key==="End")go(pts.length-1);
+  else if(e.key==="Escape"){S.ui.sel=null;paintSelection()}
+});
 function paintSelection(){
   const svg=$("#cord svg");
   if(!svg)return;
@@ -626,13 +671,14 @@ function paintSelection(){
     if(button.getAttribute("aria-pressed")!==String(selected))button.setAttribute("aria-pressed",String(selected));
   });
   paintReadout();
+  paintScrub();
 }
 function paintCord(opts={}){
   const el=$("#cord"); if(!el)return;
   const s=sums();
   const items=itemsForLease();
   const rel=S.voided||{A:0,F:0};
-  updateCord(el,{items,cap:CAP,C:s.C,A:s.A,F:s.F,vertical:isVertical(),voided:S.status==="voided",
+  updateCord(el,{items,cap:CAP,C:s.C,A:s.A,F:s.F,vertical:isVertical(),ps:isVertical()?1:.8,voided:S.status==="voided",
     relA:rel.A,relF:rel.F,interactive:true,live:"lease",
     label:S.status==="voided"?"The lease cord, cut. The released length is gone.":`The lease as a knotted cord. ${items.length} calls tied. ${fmt(s.F)} free, ${fmt(s.A)} owed, ${fmt(s.C)} captured.`},opts);
   paintSelection();
@@ -643,7 +689,7 @@ function paintReadout(){
   const html=k
     ?trow(`<strong>Call ${k.id}, ${esc(k.tool)}</strong> <span class="num">${fmt(k.c)}</span> <span>${k.st}</span> <span class="num">${k.t}</span>`,liveTag())+`<code class="raw" aria-label="Raw row">${esc(JSON.stringify(k.raw||{id:k.id,tool:k.tool,amount_minor:k.c,state:k.st,at:k.t}))}</code>`
     :S.liveErr?`<span class="help">${esc(S.liveErr)}</span>`
-    :`<div class="hintrow"><button class="link-btn" data-act="read-cord" aria-expanded="${Boolean(S.ui.hint)}" aria-controls="cordhint">How to read this cord</button><span class="help" id="cordhint"${S.ui.hint?"":" hidden"}>Each pendant is a paid call. Knots by decimal place: tens, dollars, dimes, cents. Gold is captured, outlined is owed, cochineal is still free. Hover or tap a pendant for its raw row.</span></div>`;
+    :`<div class="hintrow"><button class="link-btn" data-act="read-cord" aria-expanded="${Boolean(S.ui.hint)}" aria-controls="cordhint">How to read this cord</button><span class="help" id="cordhint"${S.ui.hint?"":" hidden"}>Each pendant is a paid call. Knots by decimal place: tens, dollars, dimes, cents. Gold is captured, outlined is owed, cochineal is still free. ${isVertical()?"Drag the handle on the right, or tap a pendant, for its raw row.":"Hover or tap a pendant for its raw row."}</span></div>`;
   paintText(el,html,".msg,.raw,#cordhint");
 }
 function paintLedger(){
@@ -684,7 +730,7 @@ function paintLedger(){
     }
     return;
   }
-  el.innerHTML=`<div class="wide"><table><caption class="sr">Paid calls on this lease${S.user&&S.user.live?"":", fixture data"}</caption>
+  el.innerHTML=`<div class="wide" tabindex="0" role="region" aria-label="Paid calls table, scrolls sideways"><table class="rt ledgerrt"><caption class="sr">Paid calls on this lease${S.user&&S.user.live?"":", fixture data"}</caption>
    <thead><tr><th scope="col">Call</th><th scope="col" class="r">Price</th><th scope="col">State</th><th scope="col" class="r">Time</th></tr></thead>
    <tbody>${S.calls.map(rowHtml).join("")}</tbody>
    <tfoot><tr><td>Captured</td><td class="num r">${fmt(s.C)}</td><td colspan="2"></td></tr>
@@ -714,14 +760,14 @@ function paintControls(){
     }
     const budget=data?.remaining_calls??0;
     if(!el.querySelector("#showcase-price")){
-      el.innerHTML=`<section class="moment" aria-labelledby="momh"><h2 class="sec" id="momh">Try the gateway</h2>
+      el.innerHTML=`<section class="moment" aria-labelledby="momh"><div class="mcol"><h2 class="sec" id="momh">Try the gateway</h2>
         ${gaugeHtml()}
-        <p class="help" id="showcase-budget"></p>
-        <button class="btn fill cta" data-act="showcase-run">Run the agent</button>
+        <p class="help" id="showcase-budget"></p></div>
+        <div class="mcol"><button class="btn fill cta" data-act="showcase-run">Run the agent</button>
         <div class="try"><label for="showcase-price">Price in cents</label>
           <div class="tryrow"><input id="showcase-price" type="number" min="1" step="1" value="${Math.min(Number.MAX_SAFE_INTEGER, CAP+1)}">
           <button class="btn accent" data-act="showcase-try">Try to break it</button></div></div>
-        <p class="help result" id="showcase-result" role="status"></p></section>`;
+        <p class="help result" id="showcase-result" role="status"></p></div></section>`;
     }
     $("#showcase-budget").textContent=`Computed budget remaining: ${fmt(Number(data?.lease.balances.hold_available??0))}. Demo calls left: ${budget}.`;
     $("#showcase-result").textContent=S.showcaseMessage||"";
@@ -1071,7 +1117,7 @@ function showcaseProof(data){
   ];
   return `<div class="wrap proofpage" id="showcase-proof"><h1>Showcase proof</h1>
     ${trow("",data.mode==="recorded"?tagHtml("recorded","recorded "+data.recorded_on):tagHtml("computed","live database rows"))}
-    ${tables.map(([name,rows])=>`<h2>${name}</h2><div class="wide"><pre>${esc(JSON.stringify(rows,null,2))}</pre></div>`).join("")}
+    ${tables.map(([name,rows])=>`<h2>${name}</h2><div class="wide" tabindex="0" role="region" aria-label="${name}, scrolls sideways"><pre>${esc(JSON.stringify(rows,null,2))}</pre></div>`).join("")}
     <p><a href="/lease?showcase=1">Showcase lease</a></p></div>`;
 }
 
@@ -1084,7 +1130,7 @@ V.proof=()=>{
    <div class="proofhead"><div><h1>What PayPal actually said.</h1></div>
    <p class="sub" style="font-size:1.1875rem">Authorization <span class="mono">3JR45593UX474005K</span> in the PayPal sandbox, recorded 2026-11-06 UTC from <span class="mono">evidence/spike2-log.masked.jsonl</span>. Every row below is from a raw capture response, not a fixture. Only account and contact fields are masked. One mocked 403 in that run is left out because it was not a real capture.</p></div>
    <div class="cordwrap" style="margin-top:32px;max-width:${isVertical()?"420px":"none"}" aria-label="Measured captures drawn as a cord">${svg}<div style="margin-top:12px">${trow(`<span class="help">One knot of $1.00 on each pendant. The red length is the $8.00 still held after the twelfth capture, before the void.</span>`,tagHtml("computed"))}</div></div>
-   <div style="margin-top:48px" class="wide"><div class="trow caph"><span class="msg">Twelve captures, one authorization</span><span class="tags">${tagHtml("measured")}</span></div><table><caption class="sr">Twelve captures, one authorization, measured</caption>
+   <div style="margin-top:48px" class="wide" tabindex="0" role="region" aria-label="Twelve captures table, scrolls sideways"><div class="trow caph"><span class="msg">Twelve captures, one authorization</span><span class="tags">${tagHtml("measured")}</span></div><table class="rt proofrt"><caption class="sr">Twelve captures, one authorization, measured</caption>
     <thead><tr><th scope="col">No.</th><th scope="col">Capture id</th><th scope="col">UTC</th><th scope="col" class="r">Amount</th><th scope="col" class="r">PayPal fee</th><th scope="col">Status</th></tr></thead>
     <tbody>${rows}</tbody>
     <tfoot><tr><td colspan="3">Total</td><td class="num r">$12.00</td><td class="num r">$6.24</td><td class="tagcell">${tagHtml("computed")}</td></tr>
@@ -1299,7 +1345,7 @@ V.home=()=>`
       <div class="ctas"><a class="btn accent" href="/lease?showcase=1">Open showcase lease</a><a class="btn" href="/signup">Start with a $20 hold</a><a class="tert" href="/" data-act="sample">Explore a sample lease</a></div>
     </div>
   </div>
-  <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><div class="herotools"><button class="link-btn" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause the demo</button><button class="link-btn" data-act="sound" aria-pressed="false">Sound off</button></div></div>
+  <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><div class="herotools"><button class="link-btn" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause the demo</button><button class="link-btn" data-act="sound" aria-pressed="false">Sound off</button>${KEY_HTML}</div></div>
   <p class="sr">An animated lease cord. An agent ties paid calls onto a twenty dollar hold, calls are settled in one capture, and a call that would pass the cap is refused.</p>
 </div></section>
 
@@ -1437,8 +1483,8 @@ function paintFlow(focus){
     mainH=`<h1>Approve the hold</h1><p class="sub">Read this once. You can change nothing after the hold except voiding it.</p>
      <div class="fm-body"><dl class="summ"><dt>Hold</dt><dd class="num">${fmt(s.cap)}</dd><dt>One call, at most</dt><dd class="num">${fmt(per)}</dd><dt>May buy</dt><dd>${esc(s.cats.join(", "))}</dd><dt>Honored for</dt><dd>72 hours, then best effort</dd><dt>Charged today</dt><dd class="num">$0.00</dd></dl>
       ${a==="declined"?`<p class="err" role="alert" style="margin-top:var(--s5)">PayPal did not approve the hold. Nothing was held and nothing was charged. You can try again.</p>`:""}
+      <p class="notice" role="note">${tagHtml("fixture")} The approval is simulated and makes no PayPal call.</p>
       <div class="actions"><button class="btn accent" data-act="su-approve" id="apGo" ${a==="busy"?'aria-busy="true" aria-disabled="true"':""} style="min-width:15.5rem">${a==="busy"?"Waiting for PayPal":`Approve ${fmt(s.cap)} hold`}</button><button class="btn" data-act="su-approve-no" ${a==="busy"?'aria-disabled="true"':""}>Decline in PayPal</button></div>
-      <p class="help" style="margin-top:var(--s4)">${tagHtml("fixture")} The approval is simulated and makes no PayPal call.</p>
       <p class="swap"><button class="link-btn" data-act="su-back">Back to the rules</button></p></div>`;
   }else{
     const t=s.test;
@@ -1690,7 +1736,6 @@ on(document,"click",e=>{
   if(sel){const id=+sel.dataset.sel;S.ui.sel=S.ui.sel===id?null:id;paintSelection();return}
   const pen=t.closest("#cord .pendants .pen[data-id]");
   if(pen){const id=+pen.dataset.id;S.ui.sel=S.ui.sel===id?null:id;paintSelection();return}
-  const id=t.closest("[id]")?.id;
   switch(t.closest("button")?.id){
     case "run": S.running?(stopRun(),paintControls()):startRun(); break;
     case "one": spend(); break;
