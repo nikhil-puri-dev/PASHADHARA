@@ -86,6 +86,115 @@ function paintText(el,html,targets,animate=true){
   });
 }
 
+
+/* =============================================================
+   Motion, step 2. Every interaction decided before it was coded:
+   refusal   rare, state    90 ms taut, 60 ms freeze, damped spring 640 ms, linear samples of a spring (WAAPI)
+   approve   rare, state    700 ms knot ease-out, 800 ms ground cross-fade, 1700 ms sheen once
+   spend     often, state   fixed 320 ms drop then a 900 ms damped swing, same for every call
+   capture   state          400 ms outlined knot fades into gold
+   void      rare, state    1200 ms hold (ring fills linearly), 900 ms untie from the free end
+   idle      ambience       1 px breath over 8 s on the cord only, paused when off screen
+   reduced   zero movement, same words; the 120 ms button press stays
+============================================================= */
+const TAU=Math.PI*2;
+const damped=(amp,zeta,hz,ms,fn)=>{
+  const w=TAU*hz, wd=w*Math.sqrt(1-zeta*zeta), n=Math.max(2,Math.round(ms/16)), out=[];
+  for(let i=0;i<=n;i++){const t=i/n*ms/1000;out.push(amp*Math.exp(-zeta*w*t)*fn(wd*t))}
+  return out;
+};
+const easeOut3=t=>1-Math.pow(1-t,3);
+const REFUSE={taut:90,freeze:60,swing:640};
+const REFUSE_MS=REFUSE.taut+REFUSE.freeze+REFUSE.swing;
+const DROP_MS=320, SWING_MS=900;
+
+/* sound: synthesised, no files, off until the visitor turns it on */
+const SOUND_KEY="pashadhara-sound";
+const soundOn=()=>{try{return localStorage.getItem(SOUND_KEY)==="on"}catch(e){return false}};
+let AC=null;
+function audio(){
+  try{
+    if(!AC){const C=window.AudioContext||window.webkitAudioContext;if(!C)return null;AC=new C()}
+    if(AC.state==="suspended")AC.resume().catch(()=>{});
+    return AC;
+  }catch(e){return null}
+}
+function sfx(kind){
+  if(!soundOn())return;
+  const c=audio(); if(!c||c.state==="closed")return;
+  const t=c.currentTime, out=c.createGain(); out.connect(c.destination);
+  const tone=(f0,f1,dur,gain,type="sine",at=0)=>{
+    const o=c.createOscillator(), g=c.createGain();
+    o.type=type; o.frequency.setValueAtTime(f0,t+at); o.frequency.exponentialRampToValueAtTime(f1,t+at+dur);
+    g.gain.setValueAtTime(0.0001,t+at); g.gain.exponentialRampToValueAtTime(gain,t+at+.004); g.gain.exponentialRampToValueAtTime(0.0001,t+at+dur);
+    o.connect(g); g.connect(out); o.start(t+at); o.stop(t+at+dur+.02);
+  };
+  if(kind==="refuse"){                       // a dry tick, then a short low knock
+    const len=Math.floor(c.sampleRate*.018), buf=c.createBuffer(1,len,c.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,3);
+    const src=c.createBufferSource(), hp=c.createBiquadFilter(), g=c.createGain();
+    src.buffer=buf; hp.type="bandpass"; hp.frequency.value=2600; hp.Q.value=1.1; g.gain.value=.5;
+    src.connect(hp); hp.connect(g); g.connect(out); src.start(t);
+    tone(190,110,.11,.22,"sine",.09);
+  }else if(kind==="drop"){ tone(92,58,.13,.26)}    // the drum beat of a paid call
+  else if(kind==="void"){ tone(64,40,.32,.3)}
+}
+function syncSound(){
+  const on=soundOn();
+  document.querySelectorAll('[data-act="sound"]').forEach(b=>{b.setAttribute("aria-pressed",String(on));b.textContent=on?"Sound on":"Sound off"});
+}
+function feel(kind,haptic){
+  sfx(kind);
+  if(haptic&&navigator.vibrate&&navigator.userActivation?.hasBeenActive){try{navigator.vibrate(kind==="void"?30:18)}catch(e){}}
+}
+
+/* refusal: the cord goes taut, freezes, springs back, the free length flashes cochineal once */
+function refuseFx(root,haptic){
+  const svg=root&&root.querySelector("svg"); if(!svg||reduceMotion.matches)return 0;
+  const rail=$(".rail",svg), pins=$(".pendants",svg), layer=$(".cord-fx",svg);
+  if(!rail||!pins)return 0;
+  const {taut,freeze,swing}=REFUSE, A=.022, frames=[], at=ms=>ms/REFUSE_MS;
+  for(let i=0;i<=6;i++)frames.push({offset:at(taut*i/6),transform:`scaleX(${1+A*easeOut3(i/6)})`});
+  frames.push({offset:at(taut+freeze),transform:`scaleX(${1+A})`});
+  const sp=damped(A,.2,4.4,swing,Math.cos);
+  for(let i=1;i<sp.length;i++)frames.push({offset:at(taut+freeze+swing*i/(sp.length-1)),transform:`scaleX(${1+sp[i]})`});
+  for(const n of [rail,pins,layer]){if(!n)continue;n.style.transformOrigin="64px 62px";n.animate(frames,{duration:REFUSE_MS,easing:"linear"})}
+  [...pins.querySelectorAll(".pen")].forEach((pen,i)=>{
+    const len=Number(pen.dataset.length)||300, hz=2.9*Math.sqrt(300/len), sw=damped(-5.2,.14,hz,SWING_MS,Math.sin);
+    pen.animate(sw.map((v,j)=>({offset:j/(sw.length-1),transform:`rotate(${v}deg)`})),{duration:SWING_MS,delay:taut+freeze+i*14,easing:"linear"});
+  });
+  later(()=>{
+    const free=$('[data-part="free"]',rail); if(!free||!layer)return;
+    const c=free.cloneNode(true); const first=c.querySelector("rect"); if(first)first.setAttribute("fill","#DB2C57");
+    overlay(layer,[c],[{opacity:0},{opacity:1,offset:.3},{opacity:0}],240);
+  },taut+freeze);
+  feel("refuse",haptic);
+  return REFUSE_MS;
+}
+
+/* a paid call: drops on a fixed beat, swings, settles */
+function dropPendant(node){
+  if(reduceMotion.matches)return;
+  const len=Number(node.dataset.length)||300, hz=2.6*Math.sqrt(300/len), sw=damped(-3.6,.16,hz,SWING_MS,Math.sin), total=DROP_MS+SWING_MS;
+  const fr=[{offset:0,transform:"translateY(-34px) rotate(0deg)",opacity:0,easing:easeOut},{offset:DROP_MS/total,transform:"translateY(0) rotate(0deg)",opacity:1}];
+  for(let i=1;i<sw.length;i++)fr.push({offset:(DROP_MS+SWING_MS*i/(sw.length-1))/total,transform:`translateY(0) rotate(${sw[i]}deg)`,opacity:1});
+  node.animate(fr,{duration:total,easing:"linear"});
+  later(()=>feel("drop"),DROP_MS);
+}
+
+/* approval: the knot pulls tight, the ground crosses to pearl (CSS), one slow sheen runs along the cord */
+function approveFx(root){
+  const svg=root&&root.querySelector("svg"); if(!svg||reduceMotion.matches)return;
+  const loop=$(".loop",svg), layer=$(".cord-fx",svg); if(!layer)return;
+  if(loop){loop.style.transformOrigin="41px 62px";loop.animate([{transform:"scale(1.3,1.12)"},{transform:"scale(1)"}],{duration:700,easing:easeOut})}
+  const vb=svg.viewBox.baseVal, L=vb.height>vb.width?820:1072, id="sh"+Math.random().toString(36).slice(2,7), g=document.createElementNS(layer.namespaceURI,"g");
+  g.innerHTML=`<defs><linearGradient id="${id}g"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".62"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient><clipPath id="${id}c"><rect x="64" y="53" width="${L}" height="18"/></clipPath></defs><g clip-path="url(#${id}c)"><rect class="sheen" x="-86" y="53" width="150" height="18" fill="url(#${id}g)"/></g>`;
+  layer.append(g);
+  const band=g.querySelector(".sheen");
+  const a=band.animate([{transform:"translateX(0)"},{transform:`translateX(${L+150}px)`}],{duration:1700,easing:"linear"});
+  a.finished.then(()=>g.remove(),()=>g.remove());
+}
+
 function cordSVG(o,retained){
   const N=o.N||NSLOT, vertical=!!o.vertical, L=vertical?820:1072, x0=64, y0=62, cap=o.cap||CAP;
   const ps=o.ps||1, KS=ps<1?5.6:7;      // ps: pendant scale, so a hero cord fits the first screen
@@ -94,9 +203,11 @@ function cordSVG(o,retained){
   const defs=`<defs>
     <pattern id="${scope}-ply" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><rect width="7" height="7" fill="none"/><line x1="0" y1="0" x2="0" y2="7" stroke="#231F1B" stroke-opacity=".3" stroke-width="1.6"/></pattern>
     <pattern id="${scope}-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><line x1="0" y1="0" x2="0" y2="7" stroke="#231F1B" stroke-opacity=".38" stroke-width="1.2"/></pattern>
+    <pattern id="${scope}-fibre" width="23" height="17" patternUnits="userSpaceOnUse"><path d="M2 3l5 1.2M13 2l4 -.4M8 8l6 1.6M19 7l3 .9M1 13l4 -.8M11 14l6 .6M4 10l2 -1.4M16 12l3 1.1" stroke="#231F1B" stroke-opacity=".34" stroke-width=".7" stroke-linecap="round" fill="none"/><path d="M5 6l3 -.6M15 5l3 1.3M9 12l4 -.5M20 15l2 -1M2 16l3 .3" stroke="#F3EFE2" stroke-opacity=".55" stroke-width=".6" stroke-linecap="round" fill="none"/></pattern>
+    <linearGradient id="${scope}-shade" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#231F1B" stop-opacity="0"/><stop offset=".35" stop-color="#231F1B" stop-opacity=".26"/><stop offset="1" stop-color="#231F1B" stop-opacity="0"/></linearGradient>
     <filter id="${scope}-soft" x="-5%" y="-5%" width="110%" height="110%"><feDropShadow dx="0" dy="2.5" stdDeviation="1.6" flood-color="#231F1B" flood-opacity=".32"/></filter>
   </defs>`;
-  const seg=(part,x,w,fill,over)=>w<=0?"":`<g data-part="${part}" data-x="${x}" data-w="${w}"><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${fill}" stroke="currentColor" stroke-width=".8"/><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${over}"/></g>`;
+  const seg=(part,x,w,fill,over)=>w<=0?"":`<g data-part="${part}" data-x="${x}" data-w="${w}"><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${fill}" stroke="currentColor" stroke-width=".8"/><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${over}"/><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="url(#${scope}-fibre)"/><rect class="gl" x="${x}" y="${y0-8}" width="${w}" height="3" fill="#fff"/></g>`;
   const whip=(part,x)=>`<g data-part="${part}" data-x="${x}"><g transform="translate(${x} 0)"><rect x="-4" y="${y0-13}" width="8" height="26" fill="currentColor"/><path d="M-4 ${y0-9}l8 4M-4 ${y0-3}l8 4M-4 ${y0+3}l8 4M-4 ${y0+9}l8 3" stroke="#F3EFE2" stroke-opacity=".6" stroke-width="1"/></g></g>`;
   let main="";
   let xc=x0;
@@ -116,9 +227,9 @@ function cordSVG(o,retained){
   }
   const endx=o.voided&&o.live?xc:x0+L;
   const frays=[-5,0,5].map(d=>`<path d="M${endx} ${y0+d} l12 ${d*1.6}" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>`).join("");
-  const loop=`<line x1="22" y1="14" x2="22" y2="112" stroke="#54504A" stroke-width="6" stroke-linecap="round"/>
+  const loop=`<g class="loop"><line x1="22" y1="14" x2="22" y2="112" stroke="#54504A" stroke-width="6" stroke-linecap="round"/>
     <rect x="12" y="28" width="${x0-6}" height="68" rx="30" fill="none" stroke="currentColor" stroke-width="9"/>
-    <rect class="rd" x="12" y="28" width="${x0-6}" height="68" rx="30" fill="none" stroke="#F3EFE2" stroke-width="5" stroke-dasharray="3 4"/>`;
+    <rect class="rd" x="12" y="28" width="${x0-6}" height="68" rx="30" fill="none" stroke="#F3EFE2" stroke-width="5" stroke-dasharray="3 4"/></g>`;
   let pens="";
   const items=o.items.slice(0,N);
   // a pendant hangs where its call was paid on the cord, with a minimum gap so knots never touch
@@ -147,8 +258,10 @@ function cordSVG(o,retained){
     }});
     const frayP=[-3,0,3].map(dd=>`<path d="M${x+dd} ${y0+len} l${dd*1.1} 9" stroke="currentColor" stroke-opacity=".7" stroke-width="1.2" stroke-linecap="round"/>`).join("");
     pens+=`${open}
+      <rect class="shade" x="${x+3}" y="${y0+11}" width="8" height="${len-12}" fill="url(#${scope}-shade)"/>
       <rect class="body" x="${x-3.6}" y="${y0+9}" width="7.2" height="${len-9}" fill="#F3EFE2" stroke="currentColor" stroke-width=".7"/>
       <rect x="${x-3.6}" y="${y0+9}" width="7.2" height="${len-9}" fill="${ply}"/>
+      <rect x="${x-3.6}" y="${y0+9}" width="7.2" height="${len-9}" fill="url(#${scope}-fibre)"/>
       <g class="knots">${knots}</g>${frayP}
       ${o.interactive?`<rect class="hit" data-id="${it.id}" x="${x-(vertical?22:30)}" y="${y0+9}" width="${vertical?44:60}" height="${len+10}"/>`:""}
     </g>`;
@@ -157,7 +270,7 @@ function cordSVG(o,retained){
   const end=`<g data-part="end" data-x="${endx}">${frays}</g>`;
   const inner=retained?`<g class="pendants">${pens}</g><g class="rail">${main}${end}</g>`:o.live
     ?`<g>${ticks}</g><g filter="${soft}">${loop}</g><g class="pendants">${pens}</g><g class="rail">${main}${end}</g><g class="cord-fx" aria-hidden="true"></g>`
-    :`<g>${ticks}</g><g filter="${soft}">${loop}${pens}${main}${end}</g>`;
+    :`<g>${ticks}</g><g filter="${soft}">${loop}${pens}${main}${end}</g><g class="cord-fx" aria-hidden="true"></g>`;
   if(vertical){
     return `<svg viewBox="0 0 ${H} ${x0+L+40}" role="img" aria-label="${esc(o.label)}">${retained?"":defs}<g transform="matrix(0 1 1 0 0 0)">${inner}</g></svg>`;
   }
@@ -192,7 +305,7 @@ function previousKnots(pen){
     knot.setAttribute("stroke","#231F1B");
     knot.setAttribute("stroke-width","1.2");
   }
-  overlay(pen,[previous],[{opacity:1},{opacity:0}],220);
+  overlay(pen,[previous],[{opacity:1},{opacity:0}],400);
 }
 const movingRail=new WeakMap();
 function updateCord(el,options,cue={}){
@@ -216,17 +329,33 @@ function updateCord(el,options,cue={}){
     }
   }
   if(play&&cue.cut){
-    const released=railNodes.filter(n=>n.dataset.part!=="captured");
-    overlay(layer,[...pinNodes.filter(n=>n.dataset.state!=="captured"),...released],[
-      {transform:"translate(0,0)",opacity:1},
-      {transform:"translate(11px,19px)",opacity:.92,offset:.38},
-      {transform:"translate(29px,78px)",opacity:0}
-    ],260);
+    // void: the cord unties from its free end over 900 ms. Free length first, owed length behind it, pendants fall right to left.
+    const grp=(nodes,frames,opt)=>{
+      if(!nodes.length)return;
+      const g=document.createElementNS(layer.namespaceURI,"g");
+      g.append(...nodes.map(n=>n.cloneNode(true)));
+      if(opt.origin)g.style.transformOrigin=opt.origin;
+      layer.append(g);
+      const a=g.animate(frames,{duration:opt.ms,delay:opt.delay||0,easing:opt.easing||"cubic-bezier(.4,0,.2,1)",fill:"both"});
+      a.finished.then(()=>g.remove(),()=>g.remove());
+    };
+    const part=name=>railNodes.find(n=>n.dataset.part===name);
+    const free=part("free"), owed=part("owed"), end=part("end");
+    const fw=free?Number(free.dataset.w):0, fx=free?Number(free.dataset.x):0;
+    if(free)grp([free],[{transform:"scaleX(1)",opacity:1},{transform:"scaleX(0)",opacity:.6}],{ms:900,origin:`${fx}px 62px`});
+    if(end&&fw)grp([end],[{transform:"translateX(0)",opacity:1},{transform:`translateX(${-fw}px)`,opacity:.5}],{ms:900});
+    if(owed)grp([owed],[{transform:"scaleX(1)",opacity:1},{transform:"scaleX(0)",opacity:.6}],{ms:520,delay:380,origin:`${Number(owed.dataset.x)}px 62px`});
+    grp(railNodes.filter(n=>n.dataset.part&&n.dataset.part.endsWith("-edge")),[{opacity:1},{opacity:0}],{ms:240});
+    const owedPins=pinNodes.filter(n=>n.dataset.state!=="captured").sort((a,b)=>Number(b.dataset.x)-Number(a.dataset.x));
+    owedPins.forEach((n,i)=>grp([n],[
+      {transform:"translateY(0) rotate(0deg)",opacity:1},
+      {transform:`translateY(46px) rotate(${i%2?7:-7}deg)`,opacity:0}
+    ],{ms:420,delay:80+i*(430/Math.max(1,owedPins.length)),origin:`${Number(n.dataset.x)}px 71px`,easing:easeOut}));
   }
   if(play&&cue.reset)overlay(layer,[...pinNodes,...railNodes],[{opacity:1},{opacity:0}],420);
   if(play&&cue.capture){
     const owed=$('[data-part="owed"]',rail);
-    if(owed)overlay(layer,[owed],[{opacity:1},{opacity:0}],220);
+    if(owed)overlay(layer,[owed],[{opacity:1},{opacity:0}],400);
   }
   if(play&&cue.dropId&&options.F===0){
     const free=$('[data-part="free"]',rail);
@@ -237,8 +366,8 @@ function updateCord(el,options,cue={}){
   }
   updateParts(rail,$(".rail",next),"part",(node,part)=>{
     if(!part){
-      if(play&&node.dataset.part==="cut")arrive(node,150,.15);
-      if(play&&node.dataset.part==="released")motion(node,[{opacity:0},{opacity:.45}],260);
+      if(play&&node.dataset.part==="cut")node.animate([{opacity:0},{opacity:1}],{duration:200,delay:700,easing:easeOut,fill:"backwards"});
+      if(play&&node.dataset.part==="released")node.animate([{opacity:0},{opacity:.45}],{duration:260,delay:700,easing:easeOut,fill:"backwards"});
       if(play&&node.dataset.part==="owed"&&cue.dropId)arrive(node,170,.45);
       return;
     }
@@ -265,7 +394,7 @@ function updateCord(el,options,cue={}){
   updateParts(pins,$(".pendants",next),"id",(node,part)=>{
     if(!part){
       if(play&&node.dataset.id===String(cue.dropId)){
-        motion(node,[{transform:"translateY(-24px)",opacity:0},{transform:"none",opacity:1}],240);
+        dropPendant(node);
       }
       return;
     }
@@ -275,25 +404,12 @@ function updateCord(el,options,cue={}){
     const previous=play&&stateChanged?knots.cloneNode(true):null;
     if(node.dataset.x!==part.dataset.x||node.dataset.length!==part.dataset.length)node.innerHTML=part.innerHTML;
     else if(stateChanged)knots.innerHTML=$(".knots",part).innerHTML;
-    if(previous)overlay(node,[previous],[{opacity:1},{opacity:0}],220);
+    if(previous)overlay(node,[previous],[{opacity:1},{opacity:0}],400);
     node.dataset.x=part.dataset.x;
     node.dataset.state=part.dataset.state;
     node.dataset.length=part.dataset.length;
   });
-  if(play&&cue.refused){
-    const x=Number($('[data-part="end"]',rail).dataset.x);
-    const gate=document.createElementNS(layer.namespaceURI,"g"), attempt=gate.cloneNode();
-    gate.innerHTML=`<path d="M${x+16} 49v84" stroke="#8C1D38" stroke-width="3"/>`;
-    attempt.innerHTML=`<path d="M${x+9} 76q-4 12 1 24t-1 26" fill="none" stroke="#231F1B" stroke-width="7" stroke-linecap="round"/>
-      <path d="M${x+9} 76q-4 12 1 24t-1 26" fill="none" stroke="#F3EFE2" stroke-width="4" stroke-linecap="round"/>`;
-    overlay(layer,[gate],[{opacity:0},{opacity:1,offset:.28},{opacity:1,offset:.64},{opacity:0}],260);
-    overlay(layer,[attempt],[
-      {transform:"translateX(-42px)",opacity:0},
-      {transform:"translateX(-2px)",opacity:1,offset:.38},
-      {transform:"translateX(-2px)",opacity:1,offset:.62},
-      {transform:"translateX(-2px)",opacity:0}
-    ],260);
-  }
+  if(play&&cue.refused)refuseFx(el,cue.haptic!==false);
 }
 
 /* slim strip: main cord only, used under the nav on other views */
@@ -432,7 +548,7 @@ V.lease=()=>{
   return `<div class="wrap"><div class="stage" id="leaseStage">
     <div class="lead" id="lead"></div>
     <aside class="honor" id="honor"></aside>
-    <div class="cordwrap"><div id="cord"></div><div class="readout" id="readout" aria-live="off"></div></div>
+    <div class="cordwrap"><div id="cord"></div><div class="readout" id="readout" aria-live="off"></div><div class="cordtools"><button class="link-btn" data-act="sound" aria-pressed="false">Sound off</button></div></div>
   </div></div>
   <div class="band"><div class="wrap"><div class="stage">
     <section class="ledger" aria-labelledby="ledh"><h2 class="sec" id="ledh">The ledger, read as a table</h2><div id="ledger"></div></section>
@@ -537,7 +653,12 @@ function paintLedger(){
       log.insertAdjacentHTML("afterbegin",latest.map(logItem).join(""));
       while(log.children.length>4)log.lastElementChild.remove();
       log.dataset.seen=S.log.length;
-      if(visible)arrive(log.firstElementChild);
+      const wait=(S.hold||0)-performance.now();
+      if(wait>0){
+        const fresh=[...log.children].slice(0,latest.length);
+        fresh.forEach(n=>{n.style.opacity="0"});
+        later(()=>fresh.forEach(n=>{n.style.opacity="";arrive(n)}),wait);
+      }else if(visible)arrive(log.firstElementChild);
     }
     return;
   }
@@ -610,8 +731,8 @@ function paintControls(){
       <p style="margin-top:8px">${s.A?`${fmt(s.A)} of it is owed for calls already made. PayPal refuses a capture after a void ${tagHtml("measured","422 AUTHORIZATION_VOIDED")}, so settle first if you want that paid. `:""}This cannot be undone.</p>
       ${s.A?`<p style="margin-top:8px"><a href="/settle">Settle ${fmt(s.A)} first</a></p>`:""}
       <div class="field"><label for="vin">Type <span class="num">${(held/100).toFixed(2)}</span> to confirm</label><input id="vin" type="text" inputmode="decimal" autocomplete="off" aria-describedby="vhelp"></div>
-      <p class="help" id="vhelp" style="margin-top:8px">The button stays off until the amount matches.</p>
-      <div class="btnrow" style="margin-top:16px"><button class="btn fill" id="voidGo" aria-disabled="true">Void ${fmt(held)}</button><button class="btn" id="voidCancel">Keep the lease</button></div></div>`;
+      <p class="help" id="vhelp" style="margin-top:8px">The button stays off until the amount matches.${reduced()?"":" Then hold it for 1.2 seconds."}</p>
+      <div class="btnrow" style="margin-top:16px"><button class="btn fill hold" id="voidGo" aria-disabled="true" aria-describedby="vhelp"><svg class="ring" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle class="rb" cx="12" cy="12" r="10"/><circle class="rf" cx="12" cy="12" r="10" pathLength="100"/></svg>Void ${fmt(held)}</button><button class="btn" id="voidCancel">Keep the lease</button></div></div>`;
   }
   const keep=document.activeElement&&el.contains(document.activeElement)?document.activeElement.id:"";
   paintText(el,html,".btn, .help, #vh, .confirm .field label, .controls strong",visible);
@@ -620,6 +741,7 @@ function paintControls(){
 }
 function paintLease(opts){
   setGround();
+  if(opts?.refused&&!reduced())S.hold=performance.now()+REFUSE_MS;
   const firstCall=opts?.dropId&&$("#ledger .empty");
   paintLead();
   if(!$("#honor").firstElementChild)paintHonor();
@@ -639,10 +761,10 @@ function spend(){
   const t=clockStr(S.clock);
   const TOOLCAT={"web.search":"Data and search","filings.fetch":"Data and search","flights.search":"Data and search","pdf.extract":"Documents","summarize.long":"Documents","maps.route":"Maps","geocode.batch":"Maps","translate.es":"Translation"};
   if(S.rules&&TOOLCAT[tool]&&!S.rules.cats.includes(TOOLCAT[tool])){
-    S.refused++; S.log.push({t,m:"Refused "+tool+". "+TOOLCAT[tool]+" is not on your allowed list."}); say("Gateway refused "+tool+". Not on your allowed list."); stopRun(); paintLease(); return false;
+    S.refused++; S.log.push({t,m:"Refused "+tool+". "+TOOLCAT[tool]+" is not on your allowed list."}); say("Gateway refused "+tool+". Not on your allowed list."); stopRun(); paintLease({refused:true}); return false;
   }
   if(S.rules&&c>S.rules.per){
-    S.refused++; S.log.push({t,m:"Refused "+tool+" at "+fmt(c)+". Your per-call ceiling is "+fmt(S.rules.per)+"."}); say("Gateway refused "+tool+". Above your per-call ceiling."); stopRun(); paintLease(); return false;
+    S.refused++; S.log.push({t,m:"Refused "+tool+" at "+fmt(c)+". Your per-call ceiling is "+fmt(S.rules.per)+"."}); say("Gateway refused "+tool+". Above your per-call ceiling."); stopRun(); paintLease({refused:true}); return false;
   }
   if(c>s.F){
     S.refused++;
@@ -882,11 +1004,14 @@ async function showcaseAction(action){
   if(S.showcaseBusy||S.showcase?.mode!=="live")return;
   const price=$("#showcase-price")?.value;
   S.showcaseBusy=true; S.showcaseMessage="Checking the lease."; paintControls();
+  let dropped=false;
   try{
     const response=await fetch("/api/showcase/"+action+(action==="try"?"?price_minor="+encodeURIComponent(price):""),{
       method:"POST",headers:{"Content-Type":"application/json"}
     });
     const data=await response.json();
+    if(data.reason){const wait=refuseFx($("#cord"),true);if(wait)await new Promise(r=>later(r,wait))}
+    dropped=action==="run"&&!data.reason&&!data.error;
     S.showcaseMessage=data.reason?`Refused: ${data.reason}. Computed price ${fmt(data.price_minor)}, remaining ${fmt(data.remaining_minor)}.`
       :data.error==="demo_limit"?"The demo call limit has been reached."
       :data.charged?`The model call failed after the computed ${fmt(data.price_minor)} charge.`
@@ -898,7 +1023,7 @@ async function showcaseAction(action){
     }
     await liveLoad();
   }catch{S.showcaseMessage="The showcase request could not be completed."}
-  finally{S.showcaseBusy=false;if(current==="lease"&&S.user?.showcase)paintLease({});}
+  finally{S.showcaseBusy=false;if(current==="lease"&&S.user?.showcase)paintLease(dropped?{dropId:S.calls.length}:{});}
 }
 
 function showcaseProof(data){
@@ -1038,9 +1163,10 @@ function heroTick(){
   }else{
     const [tool,c]=step, F=2000-C-A;
     if(c>F){
-      HD.note=trow(`<strong>Refused.</strong> <span>${tool} at <span class="num">${fmt(c)}</span> would pass the cap. <span class="num">${fmt(F)}</span> stays free.</span>`,tagHtml("fixture"));
+      const note=trow(`<strong>Refused.</strong> <span>${tool} at <span class="num">${fmt(c)}</span> would pass the cap. <span class="num">${fmt(F)}</span> stays free.</span>`,tagHtml("fixture"));
       HD.reset=true;
-      heroPaint({refused:true});
+      if(reduced()){HD.note=note;heroPaint({refused:true})}
+      else{heroPaint({refused:true,haptic:false});later(()=>{HD.note=note;heroPaint({})},REFUSE_MS)}
       return 4200;
     }
     const k={id:HD.items.length+1,tool,c,st:"accrued"}; HD.items.push(k); cue.dropId=k.id;
@@ -1134,7 +1260,7 @@ V.home=()=>`
       <div class="ctas"><a class="btn accent" href="/lease?showcase=1">Open showcase lease</a><a class="btn" href="/signup">Start with a $20 hold</a><a class="tert" href="/" data-act="sample">Explore a sample lease</a></div>
     </div>
   </div>
-  <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><div class="herotools"><button class="link-btn" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause the demo</button></div></div>
+  <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><div class="herotools"><button class="link-btn" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause the demo</button><button class="link-btn" data-act="sound" aria-pressed="false">Sound off</button></div></div>
   <p class="sr">An animated lease cord. An agent ties paid calls onto a twenty dollar hold, calls are settled in one capture, and a call that would pass the cap is refused.</p>
 </div></section>
 
@@ -1335,7 +1461,8 @@ function siteClick(e){
   switch(a){
     case "showcase-run": case "showcase-try": e.preventDefault(); void showcaseAction(a==="showcase-run"?"run":"try"); return true;
     case "sample": case "sample-proof": e.preventDefault(); store.del(LIVE_KEY); resetSample(); S.user={name:"Sample",sample:true}; go(a==="sample"?"/lease":"/proof"); return true;
-    case "theme": {const d=!darkView();try{localStorage.setItem(THEME_KEY,d?"dark":"light")}catch(e){}el.setAttribute("aria-pressed",String(d));el.textContent=d?"Light view":"Dark view";setGround();return true}
+    case "sound": {const on=!soundOn();try{localStorage.setItem(SOUND_KEY,on?"on":"off")}catch(e){}syncSound();if(on){audio();sfx("drop")}return true}
+    case "theme": {document.body.classList.add("instant");later(()=>document.body.classList.remove("instant"),80);const d=!darkView();try{localStorage.setItem(THEME_KEY,d?"dark":"light")}catch(e){}el.setAttribute("aria-pressed",String(d));el.textContent=d?"Light view":"Dark view";setGround();return true}
     case "signout": stopRun(); store.del(LIVE_KEY); S.user=null; S.su=suFresh("signup"); go("/",true); say("Signed out."); return true;
     case "hero-pause": {const p=!HD.paused;HD.paused=p;el.textContent=p?"Play the demo":"Pause the demo";el.setAttribute("aria-pressed",String(p));heroPlayback();return true}
     case "how": howPaint(+el.dataset.i); el.focus(); return true;
@@ -1353,7 +1480,7 @@ function siteClick(e){
       if(s.customCap){const n=Number(s.customCap);if(!Number.isInteger(n)||n<5||n>200){s.err.cap="Type a whole number of dollars from 5 to 200, or pick one above.";paintFlow("#capC");return true}s.cap=n*100;if(s.per>s.cap)s.per=Math.min(500,s.cap)}
       if(!s.cats.length){s.err.cats="Choose at least one kind of tool, or the agent could buy nothing.";paintFlow();return true}
       suGo(5); return true;}
-    case "su-approve": if(s.approve==="busy")return true; s.approve="busy"; paintFlow("#apGo"); later(()=>{if(S.su.approve!=="busy"||current!=="flow")return;S.su.approve="done";suGo(6);say("Approved. "+fmt(S.su.cap)+" is held.")},1200); return true;
+    case "su-approve": if(s.approve==="busy")return true; s.approve="busy"; paintFlow("#apGo"); later(()=>{if(S.su.approve!=="busy"||current!=="flow")return;S.su.approve="done";suGo(6);say("Approved. "+fmt(S.su.cap)+" is held.");approveFx($("#fs .vc"))},1200); return true;
     case "su-approve-no": if(s.approve==="busy")return true; s.approve="declined"; paintFlow("#apGo"); return true;
     case "su-reveal": s.reveal=!s.reveal; paintFlow('[data-act="su-reveal"]'); return true;
     case "su-copy": {const txt=`{\n  "mcpServers": {\n    "pashadhara": {\n      "type": "http",\n      "url": "${MCP_URL}",\n      "headers": { "Authorization": "Bearer ${TOKEN}" }\n    }\n  }\n}`;
@@ -1402,6 +1529,49 @@ on(document,"keydown",e=>{
   if(e.key==="Backspace"&&!t.value&&all[i-1]){all[i-1].focus();all[i-1].value=""}
   if(e.key==="ArrowLeft"&&all[i-1]){e.preventDefault();all[i-1].focus()}
   if(e.key==="ArrowRight"&&all[i+1]){e.preventDefault();all[i+1].focus()}
+});
+
+function voidNow(){
+  if(S.status!=="active"||!S.ui.voidOpen)return;
+  const s=sums(); S.voided={C:s.C,A:s.A,F:s.F};
+  S.calls.forEach(k=>{if(k.st==="accrued")k.st="voided"});
+  S.status="voided"; S.ui.voidOpen=false; S.ui.sel=null; stopRun();
+  feel("void",true);
+  say("Lease voided. The hold is released.");
+  paintLease({cut:true});
+  $("#lead h1")?.setAttribute("tabindex","-1"); $("#lead h1")?.focus();
+}
+/* press and hold: 1.2 s, the ring fills linearly, release or Esc cancels, a buzz at commit */
+const HOLD_MS=1200;
+let hold=null;
+function holdStart(btn){
+  if(hold||reduced()||btn.getAttribute("aria-disabled")==="true")return;
+  const ring=btn.querySelector(".rf");
+  const anim=ring?.animate([{strokeDashoffset:100},{strokeDashoffset:0}],{duration:HOLD_MS,easing:"linear",fill:"forwards"});
+  btn.classList.add("holding");
+  hold={btn,anim};
+  anim?.finished.then(()=>{if(hold&&hold.anim===anim){const h=hold;hold=null;h.btn.classList.remove("holding");voidNow()}},()=>{});
+}
+function holdCancel(){
+  if(!hold)return;
+  const h=hold; hold=null;
+  h.btn.classList.remove("holding"); h.anim?.cancel();
+}
+on(document,"pointerdown",e=>{
+  if(soundOn())audio();
+  const b=e.target.closest?.("#voidGo"); if(!b||e.button!==0||reduced()||b.getAttribute("aria-disabled")==="true")return;
+  e.preventDefault(); b.focus({preventScroll:true}); holdStart(b);
+});
+on(document,"pointerup",holdCancel);
+on(document,"pointercancel",holdCancel);
+on(document,"contextmenu",e=>{if(e.target.closest?.("#voidGo"))e.preventDefault()});
+on(document,"keydown",e=>{
+  if(e.key==="Escape")holdCancel();
+  const b=e.target.closest?.("#voidGo");
+  if(b&&(e.key===" "||e.key==="Enter")&&!reduced()){e.preventDefault();if(!e.repeat)holdStart(b)}
+});
+on(document,"keyup",e=>{
+  if(e.target.closest?.("#voidGo")&&(e.key===" "||e.key==="Enter")&&!reduced()){e.preventDefault();holdCancel()}
 });
 
 /* =============================================================
@@ -1461,6 +1631,7 @@ function mount(){
   if(mount.once)say(document.title);
   if(mount.once&&v!=="flow")main.focus({preventScroll:true});
   if(v==="home"&&location.hash){const t=document.getElementById(location.hash.slice(1));if(t){if(t.tagName==="DETAILS")t.open=true;later(()=>t.scrollIntoView({block:"start"}),60)}}
+  syncSound();
   save();
   mount.once=true;
 }
@@ -1484,18 +1655,13 @@ on(document,"click",e=>{
     case "voidCancel": S.ui.voidOpen=false; paintControls(); $("#voidOpen")?.focus(); break;
     case "voidGo": {
       if(t.closest("button").getAttribute("aria-disabled")==="true")break;
-      const s=sums(); S.voided={C:s.C,A:s.A,F:s.F};
-      S.calls.forEach(k=>{if(k.st==="accrued")k.st="voided"});
-      S.status="voided"; S.ui.voidOpen=false; S.ui.sel=null; stopRun();
-      say("Lease voided. The hold is released.");
-      paintLease({cut:true});
-      $("#lead h1")?.setAttribute("tabindex","-1"); $("#lead h1")?.focus();
-      break;}
+      if(!reduced()&&e.detail!==0)break;   // a pointer click needs the hold; a click with no pointer (assistive tech) commits
+      voidNow(); break;}
     case "approveGo": if(S.ui.approve==="loading")break; S.ui.approve="loading"; $("#main").innerHTML=V.approve();
       S.approveTimer=later(()=>{if(S.ui.approve!=="loading")return;S.status="active";S.calls=[];S.q=0;S.nextId=1;S.clock=9*60;S.log=[];S.settles=[];S.voided=null;S.ui.approve="idle";S.ui.sel=null;S.ui.settleDone=null;S.ui.settleN=null;
-        say("Approved. "+fmt(CAP)+" is held.");go("/lease");},1100); break;
+        say("Approved. "+fmt(CAP)+" is held.");go("/lease");approveFx($("#cord"));},1100); break;
     case "approveNo": if(S.ui.approve==="loading")break; S.ui.approve="declined"; $("#main").innerHTML=V.approve(); $("#approveGo").focus(); break;
-    case "resetAll": S.status="none";S.ui.approve="idle";S.calls=[];S.voided=null;stopRun();$("#main").innerHTML=V.approve();renderNav("approve");break;
+    case "resetAll": S.status="none";S.ui.approve="idle";S.calls=[];S.voided=null;stopRun();setGround();$("#main").innerHTML=V.approve();renderNav("approve");break;
     case "fewest": if(t.closest("button").getAttribute("aria-disabled")==="true")break; S.ui.settleN=1; $("#nr").value=1; paintSettleLive(accruedCalls(),accruedCalls().reduce((a,k)=>a+k.c,0),true); break;
     case "every": if(t.closest("button").getAttribute("aria-disabled")==="true")break; {const m=accruedCalls().length; S.ui.settleN=m; $("#nr").value=m; paintSettleLive(accruedCalls(),accruedCalls().reduce((a,k)=>a+k.c,0),true);} break;
     case "settleGo": {
@@ -1521,7 +1687,7 @@ on(document,"input",e=>{
     const ok=got===want, b=$("#voidGo");
     b.setAttribute("aria-disabled",String(!ok));
     const help=$("#vhelp");
-    const message=ok?"Amount matches. The button is on.":(got&&Number(got)!==Number(want)?"That is not the held amount.":"The button stays off until the amount matches.");
+    const message=ok?(reduced()?"Amount matches. The button is on.":"Amount matches. Hold the button for 1.2 seconds to void."):(got&&Number(got)!==Number(want)?"That is not the held amount.":"The button stays off until the amount matches.");
     if(help.textContent!==message){help.textContent=message;arrive(help,120)}
   }
 });

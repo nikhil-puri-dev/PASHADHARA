@@ -31,7 +31,7 @@
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%;scrollbar-color:var(--umber) var(--quarry);scrollbar-width:thin}
-body[data-ground="pearl"]{--quarry:var(--pearl);--lint:#E4E9E1;--foot:#D6DCD3}
+body[data-ground="pearl"]{--quarry:var(--pearl);--lint:#E4E9E1;--foot:#D6DCD3;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .14  0 0 0 0 .12  0 0 0 0 .10  0 0 0 .5 0'/></filter><rect width='220' height='220' filter='url(%23n)' opacity='.09'/></svg>");}
 body{
   --foot:#C9CCC1;
   margin:0;background:var(--quarry);color:var(--walnut);
@@ -39,7 +39,7 @@ body{
   caret-color:var(--cochineal);
   min-height:100vh;
   /* limestone grain, real noise, not a gradient */
-  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .14  0 0 0 0 .12  0 0 0 0 .10  0 0 0 .5 0'/></filter><rect width='220' height='220' filter='url(%23n)' opacity='.28'/></svg>");
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .14  0 0 0 0 .12  0 0 0 0 .10  0 0 0 .5 0'/></filter><rect width='220' height='220' filter='url(%23n)' opacity='.15'/></svg>");
 }
 ::selection{background:var(--cochineal);color:var(--cotton)}
 h1,h2,h3{font-weight:600;letter-spacing:-.02em;line-height:1.04;margin:0;text-wrap:balance}
@@ -259,8 +259,7 @@ footer p{max-width:44rem}
   .cordseg{margin-top:var(--s2)}
 }
 @media (prefers-reduced-motion:reduce){
-  .btn,.seg button,.pen,nav a{transition:none}
-  :root{--press-scale:1}
+  .pen,nav a{transition:none}
 }
 
 /* =================== site: landing, sign up, log in =================== */
@@ -439,7 +438,6 @@ pre.snip{font:400 .9375rem/1.6 var(--font-data);background:var(--walnut);color:v
   .pcord svg{width:96px}
 }
 @media (prefers-reduced-motion:reduce){
-  .tabs button,.chips button,.seg button{transition:none}
   .btn[aria-busy="true"]::after{animation:none}
 }
 
@@ -488,3 +486,25 @@ main svg,.slimcord svg{color:var(--walnut)}
 }
 footer p{line-height:1.9}
 footer .tag{margin-inline:.3em}
+
+/* step 2: motion and touch */
+.pen{transform-box:fill-box;transform-origin:50% 0}
+.gl{opacity:0;pointer-events:none}
+body[data-ground="pearl"] .gl{opacity:.36}
+.cordtools,.herotools{display:flex;gap:var(--s4);flex-wrap:wrap}
+.cordtools .link-btn,.herotools .link-btn{font-size:.9375rem;color:var(--umber)}
+.cordtools{justify-content:flex-end;margin-top:var(--s1)}
+.btn.hold{position:relative;gap:var(--s2);user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none}
+.hold .ring{width:24px;height:24px;flex:none;transform:rotate(-90deg);color:inherit}
+.hold .rb{fill:none;stroke:currentColor;stroke-opacity:.5;stroke-width:2.6}
+.hold .rf{fill:none;stroke:currentColor;stroke-width:3.6;stroke-linecap:round;stroke-dasharray:100;stroke-dashoffset:100}
+.btn.hold.holding{transform:scale(.98)}
+@media (prefers-reduced-motion:reduce){.hold .ring{display:none}}
+@media (prefers-reduced-motion:no-preference){
+  /* ground crosses from matte quarry to pearl at approval and settles back at void */
+  body,.band,footer{transition:background-color 800ms var(--ease-out)}
+  body.instant,body.instant .band,body.instant footer{transition:none}
+  /* Cancer tide: one slow breath, the cord only, nothing else idle */
+  #cord>svg,#herocord>svg{animation:breathe 8s ease-in-out infinite}
+}
+@keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(1px)}}
