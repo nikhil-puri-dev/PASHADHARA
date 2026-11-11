@@ -508,3 +508,61 @@ body[data-ground="pearl"] .gl{opacity:.36}
   #cord>svg,#herocord>svg{animation:breathe 8s ease-in-out infinite}
 }
 @keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(1px)}}
+
+/* step 3: flows and controls */
+/* lease sections: Cord, Settle and Escrow are one object */
+.leasetabs{display:flex;align-items:center;gap:var(--s5);border-bottom:1px solid var(--rule-soft);margin-bottom:var(--s4);flex-wrap:wrap}
+.leasetabs .lt-label{font:500 .875rem var(--font-data);color:var(--umber)}
+.leasetabs ul{display:flex;gap:var(--s1);list-style:none;margin:0;padding:0}
+.leasetabs a{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s3);text-decoration:none;font-weight:600;font-size:.9375rem;text-transform:none;letter-spacing:0;border-radius:0;border-bottom:3px solid transparent;margin-bottom:-1px;background:none}
+.leasetabs a[aria-current="page"]{border-bottom-color:var(--cochineal);font-weight:700;background:none}
+@media (hover:hover) and (pointer:fine){.leasetabs a:hover{background:var(--lint)}}
+.btn[aria-current="page"]{background:var(--cochineal);border-color:var(--cochineal);color:var(--cotton)}
+.acts .btn.sm{margin-left:var(--s2)}
+
+/* the main interactive moment: budget, cap state, refusal */
+.moment h2.sec{margin-bottom:var(--s3)}
+.moment>*+*{margin-top:var(--s4)}
+.gauge .gnum{font:600 2.5rem/1 var(--font-ui);letter-spacing:-.025em;font-variant-numeric:tabular-nums}
+.gauge .msg{display:flex;align-items:baseline;gap:var(--s2);font-weight:600}
+.gauge .gbar{margin-top:var(--s2)}
+.gauge .gbar svg{display:block;width:100%;height:auto}
+.gauge .gcap{margin-top:var(--s2)}
+.gauge[data-state="cap"] .gnum{color:var(--cochineal)}
+.gauge[data-state="cap"] .gcap{color:var(--cochineal);font-weight:600}
+.btn.cta{min-height:56px;width:100%;font-size:1.125rem}
+.try label{display:block;font-weight:600;margin-bottom:var(--s2)}
+.tryrow{display:grid;gap:var(--s3)}
+.tryrow input{font:500 1.125rem var(--font-data);min-height:48px;padding:0 var(--s3);background:var(--cotton);border:1.5px solid var(--walnut);border-radius:3px;color:var(--walnut);width:100%}
+.tryrow .btn{width:100%}
+.result{padding:var(--s3) var(--s4);border-left:3px solid var(--rule);min-height:3.4rem}
+.result[data-state="refused"]{border-left-color:var(--cochineal);background:rgba(140,29,56,.08);color:var(--walnut)}
+.result[data-state="refused"]::first-line{font-weight:700;color:var(--cochineal)}
+
+/* cord legibility */
+.readout{min-height:4.6rem}
+.readout .trow,.readout .hintrow{flex:1 1 100%}
+.hintrow{display:flex;gap:var(--s4);align-items:baseline;flex-wrap:wrap}
+.hintrow .link-btn{font-size:.9375rem;color:var(--umber)}
+.raw{display:block;flex:1 1 100%;font:400 .875rem/1.5 var(--font-data);color:var(--umber);overflow-wrap:anywhere}
+
+/* proof is public and in the same system: rows and rules, no panels */
+body[data-mode="site"] .proofpage{padding-top:var(--s6)}
+.three{display:block;margin-top:var(--s7);max-width:60rem}
+.three .col{background:none;padding:var(--s4) 0 0;margin-top:var(--s6);border-top:1px solid var(--rule)}
+.three h2{margin:0 0 var(--s3)}
+.three ul{list-style:none;padding:0;margin:0}
+.three li{padding:var(--s3) 0;border-bottom:1px solid var(--rule-soft)}
+.three li+li{margin-top:0}
+@media (max-width:720px){
+  body[data-mode="app"] .bar{flex-wrap:wrap;gap:var(--s1) var(--s3)}
+  body[data-mode="app"] .acts{display:contents}
+  body[data-mode="app"] .brand{order:1;margin-right:auto}
+  body[data-mode="app"] #newlease{order:2;margin-left:0}
+  body[data-mode="app"] .bar nav{order:3;flex:1 1 100%}
+  body[data-mode="app"] .acts .who,body[data-mode="app"] .acts .link-btn.so{order:4}
+}
+@media (max-width:900px){
+  /* the interactive moment sits right under the cord, the ledger follows */
+  .band .controls{order:-1;margin-top:0;margin-bottom:var(--s7)}
+}

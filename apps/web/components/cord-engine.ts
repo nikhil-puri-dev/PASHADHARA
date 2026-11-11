@@ -19,6 +19,16 @@ const tagHtml=(k,t)=>`<span class="tag ${k}">${t||k}</span>`;
 /* a row: words hard left, tags hard right */
 const trow=(msg,tags,cls="")=>`<div class="trow${cls?" "+cls:""}"><span class="msg">${msg}</span><span class="tags">${tags}</span></div>`;
 const GOLD="#C8A24A";
+const PART_TIP={
+  captured:"Captured. These paid calls have been collected from the hold.",
+  owed:"Owed. These calls are made and still held, not yet captured.",
+  free:"Free to spend. Held and unspent, up to the cap.",
+  "captured-edge":"Where captured length ends and owed length begins.",
+  "free-edge":"Where owed length ends and free length begins.",
+  cut:"The cut. Length past this point was released.",
+  released:"Released. This length went back to PayPal when the lease was voided."
+};
+const LEVEL_NAMES=["Tens","Dollars","Dimes","Cents"];
 
 /* measured: raw rows from evidence/spike2-log.masked.jsonl, auth 3JR45593UX474005K */
 const MEASURED=[["8KK17784DB464635E","16:17:20"],["3F738302AV910594B","16:17:23"],["11H34634K9873640M","16:17:26"],["7X372453FD414441H","16:17:29"],["9W4967933R4765939","16:17:31"],["1NL47230D4507635W","16:17:34"],["1EN26299VG4180452","16:17:36"],["2KU9406534856942A","16:17:39"],["5XD45021CD582593A","16:17:42"],["2WY25534LV958454K","16:17:45"],["19317627JP720332M","16:17:48"],["84F24590SX6367626","16:17:51"]];
@@ -207,8 +217,8 @@ function cordSVG(o,retained){
     <linearGradient id="${scope}-shade" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#231F1B" stop-opacity="0"/><stop offset=".35" stop-color="#231F1B" stop-opacity=".26"/><stop offset="1" stop-color="#231F1B" stop-opacity="0"/></linearGradient>
     <filter id="${scope}-soft" x="-5%" y="-5%" width="110%" height="110%"><feDropShadow dx="0" dy="2.5" stdDeviation="1.6" flood-color="#231F1B" flood-opacity=".32"/></filter>
   </defs>`;
-  const seg=(part,x,w,fill,over)=>w<=0?"":`<g data-part="${part}" data-x="${x}" data-w="${w}"><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${fill}" stroke="currentColor" stroke-width=".8"/><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${over}"/><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="url(#${scope}-fibre)"/><rect class="gl" x="${x}" y="${y0-8}" width="${w}" height="3" fill="#fff"/></g>`;
-  const whip=(part,x)=>`<g data-part="${part}" data-x="${x}"><g transform="translate(${x} 0)"><rect x="-4" y="${y0-13}" width="8" height="26" fill="currentColor"/><path d="M-4 ${y0-9}l8 4M-4 ${y0-3}l8 4M-4 ${y0+3}l8 4M-4 ${y0+9}l8 3" stroke="#F3EFE2" stroke-opacity=".6" stroke-width="1"/></g></g>`;
+  const seg=(part,x,w,fill,over)=>w<=0?"":`<g data-part="${part}" data-x="${x}" data-w="${w}"><title>${PART_TIP[part]}</title><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${fill}" stroke="currentColor" stroke-width=".8"/><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${over}"/><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="url(#${scope}-fibre)"/><rect class="gl" x="${x}" y="${y0-8}" width="${w}" height="3" fill="#fff"/></g>`;
+  const whip=(part,x)=>`<g data-part="${part}" data-x="${x}"><g transform="translate(${x} 0)"><rect x="-4" y="${y0-13}" width="8" height="26" fill="currentColor"/><path d="M-4 ${y0-9}l8 4M-4 ${y0-3}l8 4M-4 ${y0+3}l8 4M-4 ${y0+9}l8 3" stroke="#F3EFE2" stroke-opacity=".6" stroke-width="1"/></g><title>${PART_TIP[part]}</title></g>`;
   let main="";
   let xc=x0;
   if(o.ghost){main=`<rect x="${x0}" y="${y0-9}" width="${L}" height="18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="6 6"/>`}
@@ -227,7 +237,7 @@ function cordSVG(o,retained){
   }
   const endx=o.voided&&o.live?xc:x0+L;
   const frays=[-5,0,5].map(d=>`<path d="M${endx} ${y0+d} l12 ${d*1.6}" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>`).join("");
-  const loop=`<g class="loop"><line x1="22" y1="14" x2="22" y2="112" stroke="#54504A" stroke-width="6" stroke-linecap="round"/>
+  const loop=`<g class="loop"><title>The hold. The cord is tied to it, and its length is the budget.</title><line x1="22" y1="14" x2="22" y2="112" stroke="#54504A" stroke-width="6" stroke-linecap="round"/>
     <rect x="12" y="28" width="${x0-6}" height="68" rx="30" fill="none" stroke="currentColor" stroke-width="9"/>
     <rect class="rd" x="12" y="28" width="${x0-6}" height="68" rx="30" fill="none" stroke="#F3EFE2" stroke-width="5" stroke-dasharray="3 4"/></g>`;
   let pens="";
@@ -238,7 +248,7 @@ function cordSVG(o,retained){
   let ticks="";
   for(let v=0;!retained&&v<=cap;v+=(cap>4000?2000:500)){const tx=x0+v*k;
     ticks+=`<line x1="${tx}" y1="${y0+10}" x2="${tx}" y2="${y0+19}" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2"/>`;
-    if(!vertical)ticks+=`<text x="${v===0?tx+16:tx}" y="${y0-22}" text-anchor="${v===0?"start":v===cap?"end":"middle"}" font-family="Spline Sans Mono,monospace" font-size="${o.tickFs||Math.max(14,Math.round(14*1176/Math.max(320,Math.min(innerWidth,1360)-2*Math.min(56,innerWidth*.04))))}" class="tk">$${v/100}</text>`;}
+    if(!vertical)ticks+=`<text x="${v===0?tx+16:tx}" y="${y0-22}" text-anchor="${v===0?"start":v===cap?"end":"middle"}" font-family="Spline Sans Mono,monospace" font-size="${o.tickFs||Math.max(14,Math.round(14*1176/Math.max(320,Math.min(innerWidth,1360)-2*Math.min(56,innerWidth*.04))))}" class="tk"><title>$${v/100} of the $${cap/100} hold</title>$${v/100}</text>`;}
   for(let i=0;i<items.length;i++){
     const x=xs[i], it=items[i];
     const len=Math.round((292+((i*53)%5)*12)*ps);
@@ -250,12 +260,17 @@ function cordSVG(o,retained){
     }
     const d=digits(it.c);
     let knots="";
-    d.forEach((n,lv)=>{for(let j=0;j<n;j++){
-      const y=y0+Math.round(LEVELS[lv]*ps)+j*KS;
-      knots+=it.st==="captured"
-        ?`<rect x="${x-6.5}" y="${y}" width="13" height="5" rx="2.5" fill="${GOLD}" stroke="currentColor" stroke-width=".9"/>`
-        :`<rect x="${x-6.5}" y="${y}" width="13" height="5" rx="2.5" fill="#F3EFE2" stroke="currentColor" stroke-width="1.2"/>`;
-    }});
+    d.forEach((n,lv)=>{
+      if(!n)return;
+      let level="";
+      for(let j=0;j<n;j++){
+        const y=y0+Math.round(LEVELS[lv]*ps)+j*KS;
+        level+=it.st==="captured"
+          ?`<rect x="${x-6.5}" y="${y}" width="13" height="5" rx="2.5" fill="${GOLD}" stroke="currentColor" stroke-width=".9"/>`
+          :`<rect x="${x-6.5}" y="${y}" width="13" height="5" rx="2.5" fill="#F3EFE2" stroke="currentColor" stroke-width="1.2"/>`;
+      }
+      knots+=`<g><title>${LEVEL_NAMES[lv]}: ${n} knot${n>1?"s":""}, ${it.st==="captured"?"captured":"owed"}</title>${level}</g>`;
+    });
     const frayP=[-3,0,3].map(dd=>`<path d="M${x+dd} ${y0+len} l${dd*1.1} 9" stroke="currentColor" stroke-opacity=".7" stroke-width="1.2" stroke-linecap="round"/>`).join("");
     pens+=`${open}
       <rect class="shade" x="${x+3}" y="${y0+11}" width="8" height="${len-12}" fill="url(#${scope}-shade)"/>
@@ -263,11 +278,11 @@ function cordSVG(o,retained){
       <rect x="${x-3.6}" y="${y0+9}" width="7.2" height="${len-9}" fill="${ply}"/>
       <rect x="${x-3.6}" y="${y0+9}" width="7.2" height="${len-9}" fill="url(#${scope}-fibre)"/>
       <g class="knots">${knots}</g>${frayP}
-      ${o.interactive?`<rect class="hit" data-id="${it.id}" x="${x-(vertical?22:30)}" y="${y0+9}" width="${vertical?44:60}" height="${len+10}"/>`:""}
+      ${o.interactive?`<rect class="hit" data-id="${it.id}" x="${x-(vertical?22:30)}" y="${y0+9}" width="${vertical?44:60}" height="${len+10}"><title>${esc(`Call ${it.id}, ${it.tool||"paid call"}, ${fmt(it.c)}, ${it.st}. Hover or tap for the raw row.`)}</title></rect>`:""}
     </g>`;
   }
   const H=y0+(items.length||o.live?Math.round((292+4*12)*ps)+40:78);
-  const end=`<g data-part="end" data-x="${endx}">${frays}</g>`;
+  const end=`<g data-part="end" data-x="${endx}"><title>The cap. The gateway refuses a call that would pass this end.</title>${frays}</g>`;
   const inner=retained?`<g class="pendants">${pens}</g><g class="rail">${main}${end}</g>`:o.live
     ?`<g>${ticks}</g><g filter="${soft}">${loop}</g><g class="pendants">${pens}</g><g class="rail">${main}${end}</g><g class="cord-fx" aria-hidden="true"></g>`
     :`<g>${ticks}</g><g filter="${soft}">${loop}${pens}${main}${end}</g><g class="cord-fx" aria-hidden="true"></g>`;
@@ -300,7 +315,7 @@ function overlay(layer,nodes,frames,duration){
 }
 function previousKnots(pen){
   const previous=$(".knots",pen).cloneNode(true);
-  for(const knot of previous.children){
+  for(const knot of previous.querySelectorAll("rect")){
     knot.setAttribute("fill","#F3EFE2");
     knot.setAttribute("stroke","#231F1B");
     knot.setAttribute("stroke-width","1.2");
@@ -378,6 +393,7 @@ function updateCord(el,options,cue={}){
     movingRail.get(node)?.cancel();
     if(part.dataset.w!==undefined){
       for(const rect of node.children){
+        if(rect.tagName!=="rect")continue;
         if(oldX!==newX)rect.setAttribute("x",part.dataset.x);
         if(oldWidth!==newWidth)rect.setAttribute("width",part.dataset.w);
       }
@@ -480,13 +496,13 @@ async function liveLoad(){
     for(const e of showcase?[]:entries){
       if(e.ref_type!=="commit"||e.account!=="COMMITTED_UNSETTLED"||e.direction!=="D")continue;
       const id=calls.length+1;
-      calls.push({id,tool:"paid call",c:e.amount_minor,st:"accrued",t:when(e.created_at)});
+      calls.push({id,tool:"paid call",c:e.amount_minor,st:"accrued",t:when(e.created_at),raw:e});
       log.push({t:when(e.created_at),m:`Paid ${fmt(e.amount_minor)} for call ${id}.`});
     }
     if(showcase){
       for(const row of S.showcase.calls){
         const t=when(row.created_at), amount=Number(row.price_minor);
-        if(row.status==="served")calls.push({id:calls.length+1,tool:row.tool_id,c:amount,st:row.captured?"captured":"accrued",t});
+        if(row.status==="served")calls.push({id:calls.length+1,tool:row.tool_id,c:amount,st:row.captured?"captured":"accrued",t,raw:row});
         log.push({t,m:row.status==="served"?`Paid ${fmt(amount)} for ${row.tool_id}.`:`Refused ${fmt(amount)}: ${row.status}.`});
       }
     }
@@ -516,10 +532,15 @@ function restore(){try{const j=JSON.parse(store.get(KEY)||"null");if(!j||!j.user
 function route(){const h=location.pathname.replace(/^\/+|\/+$/g,"");return h||"home"}
 function go(path,replace){const p=path.split("?")[0];if(location.pathname===p&&!replace)return;history[replace?"replaceState":"pushState"](null,"",path);mount()}
 function linkClick(e){const a=e.target.closest&&e.target.closest("a[href]");if(!a||e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||a.target||a.hasAttribute("download")||a.dataset.act||a.dataset.scroll)return false;const h=a.getAttribute("href")||"";if(h[0]!=="/"||h[1]==="/")return false;e.preventDefault();go(h);return true}
+/* Lease is home. Escrow and Settle are sections of the one lease object, shown as tabs under the header. */
 function renderNav(r){
-  const cur=r==="approve"?"":r;
-  $("#nav").innerHTML=ROUTES.map(([k,l])=>`<li><a href="/${k}"${cur===k?' aria-current="page"':""}>${l}</a></li>`).join("")
-   +`<li><a href="/approve"${r==="approve"?' aria-current="page"':""}>New lease</a></li>`;
+  const lease=r==="lease"||r==="escrow"||r==="settle";
+  $("#nav").innerHTML=`<li><a href="/lease"${lease?' aria-current="page"':""}>Lease</a></li><li><a href="/proof"${r==="proof"?' aria-current="page"':""}>Proof</a></li>`;
+  const nl=$("#newlease"); if(nl){if(r==="approve")nl.setAttribute("aria-current","page");else nl.removeAttribute("aria-current")}
+}
+function leaseTabs(v){
+  const item=(k,l,href)=>`<li><a href="${href}"${v===k?' aria-current="page"':""}>${l}</a></li>`;
+  return `<div class="wrap"><nav class="leasetabs" aria-label="This lease"><span class="lt-label">This lease</span><ul>${item("lease","Cord","/lease")}${S.user?.live?"":item("settle","Settle","/settle")}${item("escrow","Escrow","/escrow")}</ul></nav></div>`;
 }
 function slimBlock(){
   const s=sums();
@@ -620,9 +641,10 @@ function paintReadout(){
   const el=$("#readout"); if(!el)return;
   const k=S.calls.find(c=>c.id===S.ui.sel);
   const html=k
-    ?trow(`<strong>Call ${k.id}, ${esc(k.tool)}</strong> <span class="num">${fmt(k.c)}</span> <span>${k.st}</span> <span class="num">${k.t}</span>`,liveTag())
-    :S.liveErr?`<span class="help">${esc(S.liveErr)}</span>`:`<span class="help">Each pendant is one paid call. Knots by decimal place: tens, dollars, dimes, cents. Solid knots are captured, outlined knots are owed. Hover or tap a pendant to read it.</span>`;
-  paintText(el,html,".msg,:scope > .help");
+    ?trow(`<strong>Call ${k.id}, ${esc(k.tool)}</strong> <span class="num">${fmt(k.c)}</span> <span>${k.st}</span> <span class="num">${k.t}</span>`,liveTag())+`<code class="raw" aria-label="Raw row">${esc(JSON.stringify(k.raw||{id:k.id,tool:k.tool,amount_minor:k.c,state:k.st,at:k.t}))}</code>`
+    :S.liveErr?`<span class="help">${esc(S.liveErr)}</span>`
+    :`<div class="hintrow"><button class="link-btn" data-act="read-cord" aria-expanded="${Boolean(S.ui.hint)}" aria-controls="cordhint">How to read this cord</button><span class="help" id="cordhint"${S.ui.hint?"":" hidden"}>Each pendant is a paid call. Knots by decimal place: tens, dollars, dimes, cents. Gold is captured, outlined is owed, cochineal is still free. Hover or tap a pendant for its raw row.</span></div>`;
+  paintText(el,html,".msg,.raw,#cordhint");
 }
 function paintLedger(){
   const el=$("#ledger"); if(!el)return;
@@ -671,6 +693,17 @@ function paintLedger(){
    <ul class="log" aria-label="Gateway log" data-seen="${S.log.length}">${S.log.slice(-4).reverse().map(logItem).join("")}</ul>
    ${trow(S.user&&S.user.live?`<span class="help">Read from this lease’s journal. Tool names are not in the journal. Real captures are on Proof.</span>`:`<span class="help">Prices and tool names are sample data. Real captures are on Proof.</span>`,S.user&&S.user.live?liveTag():tagHtml("fixture","fixture ledger"))}`;
 }
+function gaugeHtml(){
+  return `<div class="gauge" data-gauge><div class="trow"><span class="msg"><span class="gnum num"></span> <span>free to spend</span></span><span class="tags">${liveTag()}</span></div><div class="gbar" aria-hidden="true"></div><p class="help gcap"></p></div>`;
+}
+function fillGauge(root){
+  const g=root&&$("[data-gauge]",root); if(!g)return;
+  const s=sums(), capped=s.F<=0;
+  changeText($(".gnum",g),fmt(s.F),false);
+  $(".gbar",g).innerHTML=slimSVG({C:s.C,A:s.A,F:s.F,cap:CAP});
+  g.dataset.state=capped?"cap":"open";
+  changeText($(".gcap",g),capped?"Cap reached. Nothing is free to spend, so the gateway refuses the next call.":`${fmt(s.held)} still held of ${fmt(CAP)}. ${fmt(s.A)} owed, ${fmt(s.C)} captured.`,false);
+}
 function paintControls(){
   const el=$("#controls"); if(!el)return;
   if(S.user?.showcase){
@@ -681,15 +714,19 @@ function paintControls(){
     }
     const budget=data?.remaining_calls??0;
     if(!el.querySelector("#showcase-price")){
-      el.innerHTML=`<p class="help" id="showcase-budget"></p>
-        <button class="btn fill" data-act="showcase-run">Run the agent</button>
-        <label for="showcase-price">Price in cents</label>
-        <input id="showcase-price" type="number" min="1" step="1" value="${Math.min(Number.MAX_SAFE_INTEGER, CAP+1)}">
-        <button class="btn" data-act="showcase-try">Try to break it</button>
-        <p class="help" id="showcase-result" role="status"></p><p><a href="/proof">Proof</a></p>`;
+      el.innerHTML=`<section class="moment" aria-labelledby="momh"><h2 class="sec" id="momh">Try the gateway</h2>
+        ${gaugeHtml()}
+        <p class="help" id="showcase-budget"></p>
+        <button class="btn fill cta" data-act="showcase-run">Run the agent</button>
+        <div class="try"><label for="showcase-price">Price in cents</label>
+          <div class="tryrow"><input id="showcase-price" type="number" min="1" step="1" value="${Math.min(Number.MAX_SAFE_INTEGER, CAP+1)}">
+          <button class="btn accent" data-act="showcase-try">Try to break it</button></div></div>
+        <p class="help result" id="showcase-result" role="status"></p></section>`;
     }
     $("#showcase-budget").textContent=`Computed budget remaining: ${fmt(Number(data?.lease.balances.hold_available??0))}. Demo calls left: ${budget}.`;
     $("#showcase-result").textContent=S.showcaseMessage||"";
+    $("#showcase-result").dataset.state=/^Refused/.test(S.showcaseMessage||"")?"refused":"";
+    fillGauge(el);
     el.querySelector('[data-act="showcase-run"]').disabled=!!S.showcaseBusy||!budget;
     el.querySelector('[data-act="showcase-try"]').disabled=!!S.showcaseBusy;
     return;
@@ -712,13 +749,14 @@ function paintControls(){
     changeText($(".next-tool",el),next[0],visible);
     changeText($(".next-price",el),fmt(next[1]),visible);
     changeText($(".next-warning",el),warning,visible);
+    fillGauge(el);
     if(s.A){
       changeText($(".owed-call",el),`${settleAmount} is owed and not captured.`,visible);
       changeText($("#settleCall",el),`Settle ${settleAmount}`,visible);
     }
     return;
   }
-  let html=`<div><div class="btnrow">
+  let html=`<div>${gaugeHtml()}<div class="btnrow">
     <button class="btn fill" id="run" aria-pressed="${S.running}">${runLabel}</button>
     <button class="btn" id="one">One call</button></div>
     <p class="help" style="margin-top:12px">Next call: <span class="mono next-tool">${next[0]}</span> at <span class="num next-price">${fmt(next[1])}</span>. <span class="err next-warning">${warning}</span></p></div>`;
@@ -737,6 +775,7 @@ function paintControls(){
   const keep=document.activeElement&&el.contains(document.activeElement)?document.activeElement.id:"";
   paintText(el,html,".btn, .help, #vh, .confirm .field label, .controls strong",visible);
   el.dataset.phase=S.ui.voidOpen?"confirm":"active";
+  fillGauge(el);
   if(keep)document.getElementById(keep)?.focus({preventScroll:true});
 }
 function paintLease(opts){
@@ -1030,7 +1069,7 @@ function showcaseProof(data){
   const tables=[
     ["Tool calls",data.calls],["Journal",data.journal.entries],["PayPal captures",data.captures],
   ];
-  return `<div class="wrap" id="showcase-proof"><h1>Showcase proof</h1>
+  return `<div class="wrap proofpage" id="showcase-proof"><h1>Showcase proof</h1>
     ${trow("",data.mode==="recorded"?tagHtml("recorded","recorded "+data.recorded_on):tagHtml("computed","live database rows"))}
     ${tables.map(([name,rows])=>`<h2>${name}</h2><div class="wide"><pre>${esc(JSON.stringify(rows,null,2))}</pre></div>`).join("")}
     <p><a href="/lease?showcase=1">Showcase lease</a></p></div>`;
@@ -1041,7 +1080,7 @@ V.proof=()=>{
   const rows=MEASURED.map(([id,t],i)=>`<tr><td class="num">${String(i+1).padStart(2,"0")}</td><td class="num">${id}</td><td class="num">${t}</td><td class="num r">$1.00</td><td class="num r">$0.52</td><td>COMPLETED</td></tr>`).join("");
   const items=MEASURED.map((m,i)=>({id:i+1,c:100,st:"captured"}));
   const svg=cordSVG({items,cap:2000,C:1200,A:0,F:800,vertical:isVertical(),interactive:false,settle:false,label:"Twelve measured captures of one dollar each, tied as one knot each on a cord that was authorized for twenty dollars."});
-  return `<div class="wrap">
+  return `<div class="wrap proofpage">
    <div class="proofhead"><div><h1>What PayPal actually said.</h1></div>
    <p class="sub" style="font-size:1.1875rem">Authorization <span class="mono">3JR45593UX474005K</span> in the PayPal sandbox, recorded 2026-11-06 UTC from <span class="mono">evidence/spike2-log.masked.jsonl</span>. Every row below is from a raw capture response, not a fixture. Only account and contact fields are masked. One mocked 403 in that run is left out because it was not a real capture.</p></div>
    <div class="cordwrap" style="margin-top:32px;max-width:${isVertical()?"420px":"none"}" aria-label="Measured captures drawn as a cord">${svg}<div style="margin-top:12px">${trow(`<span class="help">One knot of $1.00 on each pendant. The red length is the $8.00 still held after the twelfth capture, before the void.</span>`,tagHtml("computed"))}</div></div>
@@ -1097,7 +1136,7 @@ function renderChrome(mode,v){
   if(mode==="site"){
     h.innerHTML=`<div class="bar wrap">${brand("/","Pashadhara, home")}
      <nav aria-label="Primary"><ul>
-      <li><a href="/#why" data-scroll="why">Why</a></li><li><a href="/#how" data-scroll="how">How it works</a></li><li><a href="/#limits" data-scroll="limits">Honest limits</a></li><li><a href="/#faq" data-scroll="faq">FAQ</a></li></ul></nav>
+      <li><a href="/#how" data-scroll="how">How it works</a></li><li><a href="/#limits" data-scroll="limits">Honest limits</a></li><li><a href="/#faq" data-scroll="faq">FAQ</a></li><li><a href="/proof"${v==="proof"?' aria-current="page"':""}>Proof</a></li></ul></nav>
      <div class="acts">${S.user?`<a class="btn fill sm" href="/lease">Open lease</a>`:`<a class="nav-login" href="/login">Log in</a><a class="btn fill sm" href="/signup">Get started</a>`}</div></div>`;
   }else if(mode==="flow"){
     const {step,mode:flowMode}=S.su, login=flowMode==="login", total=login?2:6;
@@ -1123,7 +1162,7 @@ function renderChrome(mode,v){
       <div class="acts"><a class="nav-login" href="/">Exit</a></div></div>`;
   }else{
     h.innerHTML=`<div class="bar wrap">${brand("/lease","Pashadhara, lease")}<nav aria-label="Primary"><ul id="nav"></ul></nav>
-      <div class="acts"><span class="who">${esc(S.user?.showcase?"Showcase lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease":S.user?.name||"")}</span><button class="link-btn so" data-act="theme" aria-pressed="${darkView()}">${darkView()?"Light view":"Dark view"}</button><button class="link-btn so" data-act="signout">Sign out</button></div></div>`;
+      <div class="acts"><span class="who">${esc(S.user?.showcase?"Showcase lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease":S.user?.name||"")}</span><button class="link-btn so" data-act="theme" aria-pressed="${darkView()}">${darkView()?"Light view":"Dark view"}</button><button class="link-btn so" data-act="signout">Sign out</button><a class="btn fill sm" id="newlease" href="/approve">New lease</a></div></div>`;
     renderNav(v);
   }
   renderFooter(mode);
@@ -1135,7 +1174,7 @@ function renderFooter(mode){
   f.hidden=false;
   if(mode==="app"){f.innerHTML=`<div class="wrap">${legend()}</div>`;return}
   f.innerHTML=`<div class="wrap"><div class="cols"><div>${legend()}</div>
-   <div><h3>Product</h3><ul><li><a href="/signup">Get started</a></li><li><a href="/login">Log in</a></li><li><a href="/" data-act="sample">Explore a sample lease</a></li><li><a href="/" data-act="sample-proof">See the measured proof</a></li></ul></div>
+   <div><h3>Product</h3><ul><li><a href="/signup">Get started</a></li><li><a href="/login">Log in</a></li><li><a href="/" data-act="sample">Explore a sample lease</a></li><li><a href="/proof">See the measured proof</a></li></ul></div>
    <div><h3>Read</h3><ul><li><a href="/#why" data-scroll="why">Why it exists</a></li><li><a href="/#limits" data-scroll="limits">What it cannot promise</a></li><li><a href="/#sources" data-scroll="sources">Sources</a></li></ul></div></div></div>`;
 }
 
@@ -1272,7 +1311,7 @@ V.home=()=>`
     <div class="rrow"><span class="what">Fee on one $12.00 capture, from the same fee model</span><span class="val">$0.91</span><span class="tags">${tagHtml("computed")}</span></div>
     <div class="rrow"><span class="what">What PayPal answered when we tried to capture after a void</span><span class="val">422</span><span class="tags">${tagHtml("measured")}</span></div>
   </div>
-  <a class="rawlink" href="/" data-act="sample-proof">Read the twelve raw rows</a>
+  <a class="rawlink" href="/proof">Read the twelve raw rows</a>
 </div></section>
 
 <section class="trust" id="trust"><div class="wrap">
@@ -1455,7 +1494,7 @@ function verifyCode(){
 function siteClick(e){
   const el=e.target.closest("[data-scroll],[data-act]"); if(!el)return false;
   const sc=el.dataset.scroll;
-  if(sc){e.preventDefault();const t=document.getElementById(sc);if(t){if(t.tagName==="DETAILS")t.open=true;t.scrollIntoView({behavior:reduced()?"auto":"smooth",block:"start"});history.replaceState(null,"","/#"+sc)}return true}
+  if(sc){e.preventDefault();const t=document.getElementById(sc);if(!t){go("/#"+sc);return true}if(t){if(t.tagName==="DETAILS")t.open=true;t.scrollIntoView({behavior:reduced()?"auto":"smooth",block:"start"});history.replaceState(null,"","/#"+sc)}return true}
   const a=el.dataset.act, s=S.su;
   if(el.getAttribute("aria-disabled")==="true"&&a!=="how"){e.preventDefault();return true}
   switch(a){
@@ -1464,6 +1503,7 @@ function siteClick(e){
     case "sound": {const on=!soundOn();try{localStorage.setItem(SOUND_KEY,on?"on":"off")}catch(e){}syncSound();if(on){audio();sfx("drop")}return true}
     case "theme": {document.body.classList.add("instant");later(()=>document.body.classList.remove("instant"),80);const d=!darkView();try{localStorage.setItem(THEME_KEY,d?"dark":"light")}catch(e){}el.setAttribute("aria-pressed",String(d));el.textContent=d?"Light view":"Dark view";setGround();return true}
     case "signout": stopRun(); store.del(LIVE_KEY); S.user=null; S.su=suFresh("signup"); go("/",true); say("Signed out."); return true;
+    case "read-cord": S.ui.hint=!S.ui.hint; paintReadout(); return true;
     case "hero-pause": {const p=!HD.paused;HD.paused=p;el.textContent=p?"Play the demo":"Pause the demo";el.setAttribute("aria-pressed",String(p));heroPlayback();return true}
     case "how": howPaint(+el.dataset.i); el.focus(); return true;
     case "su-back": if(s.paypal==="busy"||s.approve==="busy")return true; if(s.step===2){clearInterval(resendTimer)} suGo(s.mode==="login"?1:Math.max(1,s.step-1)); return true;
@@ -1600,17 +1640,19 @@ function mount(){
   if(current!==v){stopRun();S.ui.voidOpen=false;disposeHero();clearInterval(resendTimer);if(S.ui.approve==="loading"){clearTimeout(S.approveTimer);S.ui.approve="idle"}}
   if(v==="flow"&&(current!=="flow"||S.su.mode!==r))S.su=suFresh(r);
   current=v;
-  const mode=v==="home"?"site":v==="flow"?"flow":"app";
+  const siteProof=v==="proof"&&!S.user;
+  const mode=v==="home"||siteProof?"site":v==="flow"?"flow":"app";
   document.body.classList.toggle("lease",v==="lease");
   document.body.dataset.mode=mode;setGround();
   const main=$("#main");
   if(v==="home"){renderChrome("site",v);document.title="Pashadhara | A budget your agent cannot break";main.innerHTML=V.home();initHome()}
   else if(v==="flow"){main.innerHTML=V.flow();paintFlow(mount.once?"h1":null)}
   else{
-    renderChrome("app",v);
+    renderChrome(siteProof?"site":"app",v);
     document.title=({lease:"Lease",approve:"New lease",escrow:"Escrow",settle:"Settle",proof:"Proof"})[v]+" | Pashadhara";
     const waitLive=Boolean(S.user&&S.user.live&&v==="lease"&&!S.liveReady);
     main.innerHTML=waitLive?`<div class="wrap"><p class="sub" role="status">Reading the live lease.</p></div>`:V[v]();
+    if(!waitLive&&(v==="lease"||v==="escrow"||v==="settle"))main.insertAdjacentHTML("afterbegin",leaseTabs(v));
     if(waitLive){liveLoad().then(ok=>{if(current!=="lease"||!S.user||!S.user.live)return;if(ok){S.liveReady=true;S.liveChanged=false;mount()}else $("#main").innerHTML=`<div class="wrap"><p class="sub" role="alert">${esc(S.liveErr)}</p></div>`})}
     else if(v==="lease"){
       if(S.user&&S.user.live)liveStart();
@@ -1643,6 +1685,7 @@ on(document,"click",e=>{
   if(linkClick(e))return;
   if(siteClick(e))return;
   const t=e.target;
+  if(t.closest("#cord")&&!S.ui.hint){S.ui.hint=true;paintReadout()}
   const sel=t.closest("[data-sel]");
   if(sel){const id=+sel.dataset.sel;S.ui.sel=S.ui.sel===id?null:id;paintSelection();return}
   const pen=t.closest("#cord .pendants .pen[data-id]");
@@ -1701,6 +1744,7 @@ on(document,"keydown",e=>{
 /* pointer hover on pendants, desktop only */
 on(document,"pointerover",e=>{
   if(e.pointerType!=="mouse"||!fineHover.matches)return;
+  if(e.target.closest?.("#cord")&&!S.ui.hint){S.ui.hint=true;paintReadout()}
   const h=e.target.closest?.("#cord .pendants .hit"); if(!h)return;
   const id=+h.dataset.id; if(S.ui.sel===id)return; S.ui.sel=id; paintSelection();
 });
