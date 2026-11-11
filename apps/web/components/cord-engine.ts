@@ -16,6 +16,9 @@ const feeC=c=>Math.round(49+0.0349*c);          // computed model, three measure
 const $=(s,r=document)=>r.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
 const tagHtml=(k,t)=>`<span class="tag ${k}">${t||k}</span>`;
+/* a row: words hard left, tags hard right */
+const trow=(msg,tags,cls="")=>`<div class="trow${cls?" "+cls:""}"><span class="msg">${msg}</span><span class="tags">${tags}</span></div>`;
+const GOLD="#C8A24A";
 
 /* measured: raw rows from evidence/spike2-log.masked.jsonl, auth 3JR45593UX474005K */
 const MEASURED=[["8KK17784DB464635E","16:17:20"],["3F738302AV910594B","16:17:23"],["11H34634K9873640M","16:17:26"],["7X372453FD414441H","16:17:29"],["9W4967933R4765939","16:17:31"],["1NL47230D4507635W","16:17:34"],["1EN26299VG4180452","16:17:36"],["2KU9406534856942A","16:17:39"],["5XD45021CD582593A","16:17:42"],["2WY25534LV958454K","16:17:45"],["19317627JP720332M","16:17:48"],["84F24590SX6367626","16:17:51"]];
@@ -85,6 +88,7 @@ function paintText(el,html,targets,animate=true){
 
 function cordSVG(o,retained){
   const N=o.N||NSLOT, vertical=!!o.vertical, L=vertical?820:1072, x0=64, y0=62, cap=o.cap||CAP;
+  const ps=o.ps||1, KS=ps<1?5.6:7;      // ps: pendant scale, so a hero cord fits the first screen
   const k=L/cap, z=o.ghost?0:1, wC=o.C*k*z, wA=o.A*k*z, wF=o.F*k*z;
   const scope=o.live||"cord", ply=`url(#${scope}-ply)`, hatch=`url(#${scope}-hatch)`, soft=`url(#${scope}-soft)`;
   const defs=`<defs>
@@ -92,29 +96,29 @@ function cordSVG(o,retained){
     <pattern id="${scope}-hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><line x1="0" y1="0" x2="0" y2="7" stroke="#231F1B" stroke-opacity=".38" stroke-width="1.2"/></pattern>
     <filter id="${scope}-soft" x="-5%" y="-5%" width="110%" height="110%"><feDropShadow dx="0" dy="2.5" stdDeviation="1.6" flood-color="#231F1B" flood-opacity=".32"/></filter>
   </defs>`;
-  const seg=(part,x,w,fill,over)=>w<=0?"":`<g data-part="${part}" data-x="${x}" data-w="${w}"><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${fill}" stroke="#231F1B" stroke-width=".8"/><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${over}"/></g>`;
-  const whip=(part,x)=>`<g data-part="${part}" data-x="${x}"><g transform="translate(${x} 0)"><rect x="-4" y="${y0-13}" width="8" height="26" fill="#231F1B"/><path d="M-4 ${y0-9}l8 4M-4 ${y0-3}l8 4M-4 ${y0+3}l8 4M-4 ${y0+9}l8 3" stroke="#F3EFE2" stroke-opacity=".6" stroke-width="1"/></g></g>`;
+  const seg=(part,x,w,fill,over)=>w<=0?"":`<g data-part="${part}" data-x="${x}" data-w="${w}"><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${fill}" stroke="currentColor" stroke-width=".8"/><rect x="${x}" y="${y0-9}" width="${w}" height="18" fill="${over}"/></g>`;
+  const whip=(part,x)=>`<g data-part="${part}" data-x="${x}"><g transform="translate(${x} 0)"><rect x="-4" y="${y0-13}" width="8" height="26" fill="currentColor"/><path d="M-4 ${y0-9}l8 4M-4 ${y0-3}l8 4M-4 ${y0+3}l8 4M-4 ${y0+9}l8 3" stroke="#F3EFE2" stroke-opacity=".6" stroke-width="1"/></g></g>`;
   let main="";
   let xc=x0;
-  if(o.ghost){main=`<rect x="${x0}" y="${y0-9}" width="${L}" height="18" fill="none" stroke="#231F1B" stroke-width="1.4" stroke-dasharray="6 6"/>`}
-  main+=seg("captured",xc,wC,"#4a423a",ply);            // captured: walnut dye
+  if(o.ghost){main=`<rect x="${x0}" y="${y0-9}" width="${L}" height="18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="6 6"/>`}
+  main+=seg("captured",xc,wC,GOLD,ply);                 // captured: gold leaf
   if(wC>0){xc+=wC}
   main+=seg("owed",xc,wA,"#F3EFE2",hatch);              // accrued: bare cotton, not yet settled
   if(wC>0&&wA>0)main+=whip("captured-edge",x0+wC);
   xc+=wA;
   if(o.voided){
     const wT=(o.relA+o.relF)*k;
-    main+=`<g data-part="released" class="released-trace"><rect x="${xc}" y="${y0+21}" width="${Math.max(wT-wA,0)}" height="18" fill="none" stroke="#231F1B" stroke-width="1" stroke-dasharray="5 4"/></g>`;
-    main+=`<path data-part="cut" d="M${xc} ${y0-12}v24" stroke="#231F1B" stroke-width="2"/>`;
+    main+=`<g data-part="released" class="released-trace"><rect x="${xc}" y="${y0+21}" width="${Math.max(wT-wA,0)}" height="18" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="5 4"/></g>`;
+    main+=`<path data-part="cut" d="M${xc} ${y0-12}v24" stroke="currentColor" stroke-width="2"/>`;
   }else{
     main+=seg("free",xc,wF,"#8C1D38",ply);               // free to spend: cochineal
     if(wA>0&&wF>0)main+=whip("free-edge",xc);
   }
   const endx=o.voided&&o.live?xc:x0+L;
-  const frays=[-5,0,5].map(d=>`<path d="M${endx} ${y0+d} l12 ${d*1.6}" stroke="#231F1B" stroke-width="1.3" stroke-linecap="round"/>`).join("");
+  const frays=[-5,0,5].map(d=>`<path d="M${endx} ${y0+d} l12 ${d*1.6}" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>`).join("");
   const loop=`<line x1="22" y1="14" x2="22" y2="112" stroke="#54504A" stroke-width="6" stroke-linecap="round"/>
-    <rect x="12" y="28" width="${x0-6}" height="68" rx="30" fill="none" stroke="#231F1B" stroke-width="9"/>
-    <rect x="12" y="28" width="${x0-6}" height="68" rx="30" fill="none" stroke="#F3EFE2" stroke-width="5" stroke-dasharray="3 4"/>`;
+    <rect x="12" y="28" width="${x0-6}" height="68" rx="30" fill="none" stroke="currentColor" stroke-width="9"/>
+    <rect class="rd" x="12" y="28" width="${x0-6}" height="68" rx="30" fill="none" stroke="#F3EFE2" stroke-width="5" stroke-dasharray="3 4"/>`;
   let pens="";
   const items=o.items.slice(0,N);
   // a pendant hangs where its call was paid on the cord, with a minimum gap so knots never touch
@@ -122,11 +126,11 @@ function cordSVG(o,retained){
   items.forEach(it=>{cum+=it.c; let x=x0+cum*k; if(x<prev+gap)x=prev+gap; x=Math.min(x,x0+L-12); xs.push(x); prev=x;});
   let ticks="";
   for(let v=0;!retained&&v<=cap;v+=(cap>4000?2000:500)){const tx=x0+v*k;
-    ticks+=`<line x1="${tx}" y1="${y0+10}" x2="${tx}" y2="${y0+19}" stroke="#231F1B" stroke-opacity=".5" stroke-width="1.2"/>`;
-    if(!vertical)ticks+=`<text x="${tx}" y="${y0-22}" text-anchor="${v===0?"start":v===cap?"end":"middle"}" font-family="Spline Sans Mono,monospace" font-size="${o.tickFs||Math.max(14,Math.round(14*1176/Math.max(320,Math.min(innerWidth,1360)-2*Math.min(56,innerWidth*.04))))}" fill="#54504A">$${v/100}</text>`;}
+    ticks+=`<line x1="${tx}" y1="${y0+10}" x2="${tx}" y2="${y0+19}" stroke="currentColor" stroke-opacity=".5" stroke-width="1.2"/>`;
+    if(!vertical)ticks+=`<text x="${v===0?tx+16:tx}" y="${y0-22}" text-anchor="${v===0?"start":v===cap?"end":"middle"}" font-family="Spline Sans Mono,monospace" font-size="${o.tickFs||Math.max(14,Math.round(14*1176/Math.max(320,Math.min(innerWidth,1360)-2*Math.min(56,innerWidth*.04))))}" class="tk">$${v/100}</text>`;}
   for(let i=0;i<items.length;i++){
     const x=xs[i], it=items[i];
-    const len=292+((i*53)%5)*12;
+    const len=Math.round((292+((i*53)%5)*12)*ps);
     const open=`<g class="pen" data-id="${it.id}" data-x="${x}" data-state="${it.st}" data-length="${len}">`;
     const previous=retained?.get(String(it.id))?.dataset;
     if(previous?.x===String(x)&&previous.state===it.st&&previous.length===String(len)){
@@ -136,20 +140,20 @@ function cordSVG(o,retained){
     const d=digits(it.c);
     let knots="";
     d.forEach((n,lv)=>{for(let j=0;j<n;j++){
-      const y=y0+LEVELS[lv]+j*7;
+      const y=y0+Math.round(LEVELS[lv]*ps)+j*KS;
       knots+=it.st==="captured"
-        ?`<rect x="${x-6.5}" y="${y}" width="13" height="5" rx="2.5" fill="#231F1B"/>`
-        :`<rect x="${x-6.5}" y="${y}" width="13" height="5" rx="2.5" fill="#F3EFE2" stroke="#231F1B" stroke-width="1.2"/>`;
+        ?`<rect x="${x-6.5}" y="${y}" width="13" height="5" rx="2.5" fill="${GOLD}" stroke="currentColor" stroke-width=".9"/>`
+        :`<rect x="${x-6.5}" y="${y}" width="13" height="5" rx="2.5" fill="#F3EFE2" stroke="currentColor" stroke-width="1.2"/>`;
     }});
-    const frayP=[-3,0,3].map(dd=>`<path d="M${x+dd} ${y0+len} l${dd*1.1} 9" stroke="#231F1B" stroke-opacity=".7" stroke-width="1.2" stroke-linecap="round"/>`).join("");
+    const frayP=[-3,0,3].map(dd=>`<path d="M${x+dd} ${y0+len} l${dd*1.1} 9" stroke="currentColor" stroke-opacity=".7" stroke-width="1.2" stroke-linecap="round"/>`).join("");
     pens+=`${open}
-      <rect class="body" x="${x-3.6}" y="${y0+9}" width="7.2" height="${len-9}" fill="#F3EFE2" stroke="#231F1B" stroke-width=".7"/>
+      <rect class="body" x="${x-3.6}" y="${y0+9}" width="7.2" height="${len-9}" fill="#F3EFE2" stroke="currentColor" stroke-width=".7"/>
       <rect x="${x-3.6}" y="${y0+9}" width="7.2" height="${len-9}" fill="${ply}"/>
       <g class="knots">${knots}</g>${frayP}
       ${o.interactive?`<rect class="hit" data-id="${it.id}" x="${x-(vertical?22:30)}" y="${y0+9}" width="${vertical?44:60}" height="${len+10}"/>`:""}
     </g>`;
   }
-  const H=y0+(items.length||o.live?292+4*12+40:78);
+  const H=y0+(items.length||o.live?Math.round((292+4*12)*ps)+40:78);
   const end=`<g data-part="end" data-x="${endx}">${frays}</g>`;
   const inner=retained?`<g class="pendants">${pens}</g><g class="rail">${main}${end}</g>`:o.live
     ?`<g>${ticks}</g><g filter="${soft}">${loop}</g><g class="pendants">${pens}</g><g class="rail">${main}${end}</g><g class="cord-fx" aria-hidden="true"></g>`
@@ -296,11 +300,11 @@ function updateCord(el,options,cue={}){
 function slimSVG(o){
   const s=o||sums(), k=1072/((o&&o.cap)||CAP), y=22;
   const wC=s.C*k,wA=s.A*k,wF=s.F*k, x0=0;
-  const r=(state,x,w,f,o)=>w>0?`<g data-state="${state}"><rect x="${x}" y="${y-8}" width="${w}" height="16" fill="${f}" stroke="#231F1B" stroke-width=".8"/><rect x="${x}" y="${y-8}" width="${w}" height="16" fill="${o}"/></g>`:"";
+  const r=(state,x,w,f,o)=>w>0?`<g data-state="${state}"><rect x="${x}" y="${y-8}" width="${w}" height="16" fill="${f}" stroke="currentColor" stroke-width=".8"/><rect x="${x}" y="${y-8}" width="${w}" height="16" fill="${o}"/></g>`:"";
   return `<svg viewBox="0 0 1072 44" aria-hidden="true"><defs>
     <pattern id="plyS" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><line x1="0" y1="0" x2="0" y2="7" stroke="#231F1B" stroke-opacity=".3" stroke-width="1.6"/></pattern>
     <pattern id="hatchS" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><line x1="0" y1="0" x2="0" y2="7" stroke="#231F1B" stroke-opacity=".38" stroke-width="1.2"/></pattern></defs>
-    ${r("captured",x0,wC,"#4a423a","url(#plyS)")}${r("owed",x0+wC,wA,"#F3EFE2","url(#hatchS)")}${r("free",x0+wC+wA,wF,"#8C1D38","url(#plyS)")}</svg>`;
+    ${r("captured",x0,wC,GOLD,"url(#plyS)")}${r("owed",x0+wC,wA,"#F3EFE2","url(#hatchS)")}${r("free",x0+wC+wA,wF,"#8C1D38","url(#plyS)")}</svg>`;
 }
 
 /* =============================================================
@@ -311,7 +315,7 @@ const KEY="pashadhara-session";
 /* Live mode: reads one lease from the API with its lease token. Entered with /lease#live=<lease id>.<token>.
    The fragment never reaches a server and is stripped from the address bar at once. */
 const LIVE_KEY="pashadhara-live";
-const liveTag=()=>S.user&&S.user.live?tagHtml("computed",S.showcase?.mode==="recorded"?"recorded "+S.showcase.recorded_on:"live journal"):tagHtml("fixture");
+const liveTag=()=>S.user&&S.user.live?(S.showcase?.mode==="recorded"?tagHtml("recorded","recorded "+S.showcase.recorded_on):tagHtml("computed","live journal")):tagHtml("fixture");
 function liveTake(){
   const m=/^#live=([0-9a-f-]{36})\.([\w.-]{20,600})$/i.exec(location.hash);
   if(!m)return;
@@ -404,7 +408,7 @@ function renderNav(r){
 function slimBlock(){
   const s=sums();
   const words=S.status==="voided"?"Lease voided. Nothing is held.":`${fmt(s.F)} free to spend, ${fmt(s.A)} owed, ${fmt(s.C)} captured, of ${fmt(CAP)}.`;
-  return `<div class="slimcord"><div aria-hidden="true">${slimSVG()}</div><p class="help num"><span>${words}</span> ${liveTag()}</p></div>`;
+  return `<div class="slimcord"><div aria-hidden="true">${slimSVG()}</div>${trow(`<span class="help num">${words}</span>`,liveTag())}</div>`;
 }
 
 /* =============================================================
@@ -457,18 +461,18 @@ function paintLead(){
     }
     return;
   }
-  el.style.setProperty("--amount-width",`${fmt(CAP).length}ch`);
   el.innerHTML=`<h1><span class="num motion-value">${amount}</span> is free to spend.</h1>
-   <p class="sub">You approved ${fmt(CAP)} once. <span class="balance-copy">${balance}</span> The gateway refuses any call that would pass the cap. ${liveTag()}</p>`;
+   <p class="sub trow"><span class="msg">You approved ${fmt(CAP)} once. <span class="balance-copy">${balance}</span> The gateway refuses any call that would pass the cap.</span><span class="tags">${liveTag()}</span></p>`;
 }
 function paintHonor(){
   const el=$("#honor"); if(!el)return;
   // fixture clock: hour 9 of a 72 hour honor period, day 4 opens the reauthorize window (assumed)
   const pct=h=>(h/96*100).toFixed(1)+"%";
-  if(S.user&&S.user.live){el.innerHTML=`<h2>72 hour honor period, then best effort</h2><p class="help">Honored until ${esc(S.liveHonor||"unknown")} UTC. ${liveTag()}</p>`;return}
+  if(S.user&&S.user.live){el.innerHTML=`<h2>72 hour honor period, then best effort</h2>${trow(`<span class="help">Honored until ${esc(S.liveHonor||"unknown")} UTC.</span>`,liveTag())}`;return}
   el.innerHTML=`<h2>72 hour honor period, then best effort</h2>
    <div class="rulebar" aria-hidden="true"><i style="left:0;width:${pct(72)}"></i><b style="left:0"></b><b style="left:${pct(72)}"></b><em style="left:${pct(72)};width:${(100-72/96*100).toFixed(1)}%"></em><b style="left:${pct(9)};top:2px;height:25px;width:3px"></b></div>
-   <p class="help">Hour 9 of 72. Day 4 opens a reauthorize window that PayPal says is allowed once. ${tagHtml("fixture","fixture clock")} ${tagHtml("computed","proposal, not verified")}</p>`;
+   <p class="help">Hour 9 of 72. Day 4 opens a reauthorize window that PayPal says is allowed once.</p>
+   <div class="tags tagline">${tagHtml("fixture","fixture clock")}${tagHtml("computed","proposal, not verified")}</div>`;
 }
 // after a void the uncaptured pendants have no cord to hang from, so only captured ones stay drawn
 function itemsForLease(){return S.calls.filter(k=>S.status==="voided"?k.st==="captured":true).slice(0,NSLOT)}
@@ -500,9 +504,9 @@ function paintReadout(){
   const el=$("#readout"); if(!el)return;
   const k=S.calls.find(c=>c.id===S.ui.sel);
   const html=k
-    ?`<strong>Call ${k.id}, ${esc(k.tool)}</strong><span class="num">${fmt(k.c)}</span><span>${k.st}</span><span class="num">${k.t}</span>${liveTag()}`
+    ?trow(`<strong>Call ${k.id}, ${esc(k.tool)}</strong> <span class="num">${fmt(k.c)}</span> <span>${k.st}</span> <span class="num">${k.t}</span>`,liveTag())
     :S.liveErr?`<span class="help">${esc(S.liveErr)}</span>`:`<span class="help">Each pendant is one paid call. Knots by decimal place: tens, dollars, dimes, cents. Solid knots are captured, outlined knots are owed. Hover or tap a pendant to read it.</span>`;
-  paintText(el,html,":scope > :not(.tag)");
+  paintText(el,html,".msg,:scope > .help");
 }
 function paintLedger(){
   const el=$("#ledger"); if(!el)return;
@@ -544,7 +548,7 @@ function paintLedger(){
    <tr><td>Owed, not captured</td><td class="num r">${fmt(s.A)}</td><td colspan="2"></td></tr>
    <tr><td>Free to spend</td><td class="num r">${fmt(s.F)}</td><td colspan="2"></td></tr></tfoot></table></div>
    <ul class="log" aria-label="Gateway log" data-seen="${S.log.length}">${S.log.slice(-4).reverse().map(logItem).join("")}</ul>
-   <p class="help" style="margin-top:12px">${S.user&&S.user.live?`${liveTag()} Read from this lease’s journal. Tool names are not in the journal. Real captures are on Proof.`:`${tagHtml("fixture","fixture ledger")} Prices and tool names are sample data. Real captures are on Proof.`}</p>`;
+   ${trow(S.user&&S.user.live?`<span class="help">Read from this lease’s journal. Tool names are not in the journal. Real captures are on Proof.</span>`:`<span class="help">Prices and tool names are sample data. Real captures are on Proof.</span>`,S.user&&S.user.live?liveTag():tagHtml("fixture","fixture ledger"))}`;
 }
 function paintControls(){
   const el=$("#controls"); if(!el)return;
@@ -615,6 +619,7 @@ function paintControls(){
   if(keep)document.getElementById(keep)?.focus({preventScroll:true});
 }
 function paintLease(opts){
+  setGround();
   const firstCall=opts?.dropId&&$("#ledger .empty");
   paintLead();
   if(!$("#honor").firstElementChild)paintHonor();
@@ -901,7 +906,7 @@ function showcaseProof(data){
     ["Tool calls",data.calls],["Journal",data.journal.entries],["PayPal captures",data.captures],
   ];
   return `<div class="wrap" id="showcase-proof"><h1>Showcase proof</h1>
-    <p>${tagHtml("computed",data.mode==="recorded"?"recorded "+data.recorded_on:"live database rows")}</p>
+    ${trow("",data.mode==="recorded"?tagHtml("recorded","recorded "+data.recorded_on):tagHtml("computed","live database rows"))}
     ${tables.map(([name,rows])=>`<h2>${name}</h2><div class="wide"><pre>${esc(JSON.stringify(rows,null,2))}</pre></div>`).join("")}
     <p><a href="/lease?showcase=1">Showcase lease</a></p></div>`;
 }
@@ -914,14 +919,14 @@ V.proof=()=>{
   return `<div class="wrap">
    <div class="proofhead"><div><h1>What PayPal actually said.</h1></div>
    <p class="sub" style="font-size:1.1875rem">Authorization <span class="mono">3JR45593UX474005K</span> in the PayPal sandbox, recorded 2026-11-06 UTC from <span class="mono">evidence/spike2-log.masked.jsonl</span>. Every row below is from a raw capture response, not a fixture. Only account and contact fields are masked. One mocked 403 in that run is left out because it was not a real capture.</p></div>
-   <div class="cordwrap" style="margin-top:32px;max-width:${isVertical()?"420px":"none"}" aria-label="Measured captures drawn as a cord">${svg}<p class="help" style="margin-top:12px">One knot of $1.00 on each pendant. The red length is the $8.00 still held after the twelfth capture, before the void. ${tagHtml("computed")}</p></div>
-   <div style="margin-top:48px" class="wide"><table><caption style="padding-bottom:12px;font-weight:600;font-size:1.25rem">Twelve captures, one authorization ${tagHtml("measured")}</caption>
+   <div class="cordwrap" style="margin-top:32px;max-width:${isVertical()?"420px":"none"}" aria-label="Measured captures drawn as a cord">${svg}<div style="margin-top:12px">${trow(`<span class="help">One knot of $1.00 on each pendant. The red length is the $8.00 still held after the twelfth capture, before the void.</span>`,tagHtml("computed"))}</div></div>
+   <div style="margin-top:48px" class="wide"><div class="trow caph"><span class="msg">Twelve captures, one authorization</span><span class="tags">${tagHtml("measured")}</span></div><table><caption class="sr">Twelve captures, one authorization, measured</caption>
     <thead><tr><th scope="col">No.</th><th scope="col">Capture id</th><th scope="col">UTC</th><th scope="col" class="r">Amount</th><th scope="col" class="r">PayPal fee</th><th scope="col">Status</th></tr></thead>
     <tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="3">Total ${tagHtml("computed")}</td><td class="num r">$12.00</td><td class="num r">$6.24</td><td></td></tr>
-    <tr><td colspan="3">The same $12.00 as one capture ${tagHtml("computed")}</td><td class="num r">$12.00</td><td class="num r">${fmt(feeC(1200))}</td><td></td></tr></tfoot></table></div>
+    <tfoot><tr><td colspan="3">Total</td><td class="num r">$12.00</td><td class="num r">$6.24</td><td class="tagcell">${tagHtml("computed")}</td></tr>
+    <tr><td colspan="3">The same $12.00 as one capture</td><td class="num r">$12.00</td><td class="num r">${fmt(feeC(1200))}</td><td class="tagcell">${tagHtml("computed")}</td></tr></tfoot></table></div>
    <div class="three">
-    <div class="col"><h2>After the captures ${tagHtml("measured")}</h2><ul>
+    <div class="col"><h2 class="trow"><span class="msg">After the captures</span><span class="tags">${tagHtml("measured")}</span></h2><ul>
       <li>A capture of $20.00 after $12.00 returned 422 MAX_CAPTURE_AMOUNT_EXCEEDED.</li>
       <li>A GET read PARTIALLY_CAPTURED, then the void returned 200 and a GET read VOIDED.</li>
       <li>A capture after the void returned 422 AUTHORIZATION_VOIDED.</li>
@@ -993,7 +998,7 @@ function renderChrome(mode,v){
       <div class="acts"><a class="nav-login" href="/">Exit</a></div></div>`;
   }else{
     h.innerHTML=`<div class="bar wrap">${brand("/lease","Pashadhara, lease")}<nav aria-label="Primary"><ul id="nav"></ul></nav>
-      <div class="acts"><span class="who">${esc(S.user?.showcase?"Showcase lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease":S.user?.name||"")}</span><button class="link-btn so" data-act="signout">Sign out</button></div></div>`;
+      <div class="acts"><span class="who">${esc(S.user?.showcase?"Showcase lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease":S.user?.name||"")}</span><button class="link-btn so" data-act="theme" aria-pressed="${darkView()}">${darkView()?"Light view":"Dark view"}</button><button class="link-btn so" data-act="signout">Sign out</button></div></div>`;
     renderNav(v);
   }
   renderFooter(mode);
@@ -1005,8 +1010,8 @@ function renderFooter(mode){
   f.hidden=false;
   if(mode==="app"){f.innerHTML=`<div class="wrap">${legend()}</div>`;return}
   f.innerHTML=`<div class="wrap"><div class="cols"><div>${legend()}</div>
-   <div><h4>Product</h4><ul><li><a href="/signup">Get started</a></li><li><a href="/login">Log in</a></li><li><a href="/" data-act="sample">Explore a sample lease</a></li><li><a href="/" data-act="sample-proof">See the measured proof</a></li></ul></div>
-   <div><h4>Read</h4><ul><li><a href="/#why" data-scroll="why">Why it exists</a></li><li><a href="/#limits" data-scroll="limits">What it cannot promise</a></li><li><a href="/#sources" data-scroll="sources">Sources</a></li></ul></div></div></div>`;
+   <div><h3>Product</h3><ul><li><a href="/signup">Get started</a></li><li><a href="/login">Log in</a></li><li><a href="/" data-act="sample">Explore a sample lease</a></li><li><a href="/" data-act="sample-proof">See the measured proof</a></li></ul></div>
+   <div><h3>Read</h3><ul><li><a href="/#why" data-scroll="why">Why it exists</a></li><li><a href="/#limits" data-scroll="limits">What it cannot promise</a></li><li><a href="/#sources" data-scroll="sources">Sources</a></li></ul></div></div></div>`;
 }
 
 /* ---------- landing ---------- */
@@ -1015,8 +1020,8 @@ const HD={items:[],i:0,timer:null,note:"",paused:false,visible:false,remaining:1
 function heroPaint(cue={}){
   const el=$("#herocord"); if(!el)return;
   let C=0,A=0; HD.items.forEach(k=>{k.st==="captured"?C+=k.c:A+=k.c});
-  updateCord(el,{items:HD.items,cap:2000,C,A,F:2000-C-A,vertical:isVertical(),live:"hero",label:"A lease cord for a twenty dollar hold. An agent ties paid calls onto it until a call that would pass the cap is refused."},cue);
-  paintText($("#herolog"),HD.note||`<span>Twenty dollars held. Nothing spent yet.</span> ${tagHtml("fixture")}`,":scope > :not(.tag)",cue.animate!==false);
+  updateCord(el,{items:HD.items,cap:2000,C,A,F:2000-C-A,vertical:isVertical(),live:"hero",ps:isVertical()?1:.66,label:"A lease cord for a twenty dollar hold. An agent ties paid calls onto it until a call that would pass the cap is refused."},cue);
+  paintText($("#herolog"),HD.note||trow(`<span>Twenty dollars held. Nothing spent yet.</span>`,tagHtml("fixture")),".msg",cue.animate!==false);
 }
 function heroTick(){
   if(HD.reset){
@@ -1029,17 +1034,17 @@ function heroTick(){
   const cue={};
   if(step==="CAPTURE"){
     HD.items.forEach(k=>k.st="captured"); cue.capture=true;
-    HD.note=`<strong>Settled in one capture.</strong> <span class="num">${fmt(A)}</span> ${tagHtml("fixture")} <span>fee ${fmt(feeC(A))} instead of ${fmt(HD.items.filter(k=>k.st==="captured").slice(-4).reduce((a,k)=>a+feeC(k.c),0))} one by one</span> ${tagHtml("computed")}`;
+    HD.note=trow(`<strong>Settled in one capture.</strong> <span class="num">${fmt(A)}</span> <span>fee ${fmt(feeC(A))} instead of ${fmt(HD.items.filter(k=>k.st==="captured").slice(-4).reduce((a,k)=>a+feeC(k.c),0))} one by one</span>`,`${tagHtml("fixture","fixture amount")}${tagHtml("computed","computed fee")}`);
   }else{
     const [tool,c]=step, F=2000-C-A;
     if(c>F){
-      HD.note=`<strong>Refused.</strong> <span>${tool} at <span class="num">${fmt(c)}</span> would pass the cap. <span class="num">${fmt(F)}</span> stays free.</span> ${tagHtml("fixture")}`;
+      HD.note=trow(`<strong>Refused.</strong> <span>${tool} at <span class="num">${fmt(c)}</span> would pass the cap. <span class="num">${fmt(F)}</span> stays free.</span>`,tagHtml("fixture"));
       HD.reset=true;
       heroPaint({refused:true});
       return 4200;
     }
     const k={id:HD.items.length+1,tool,c,st:"accrued"}; HD.items.push(k); cue.dropId=k.id;
-    HD.note=`<span>Agent paid <span class="num">${fmt(c)}</span> for ${tool}.</span> <span class="num">${fmt(F-c)}</span> <span>free</span> ${tagHtml("fixture")}`;
+    HD.note=trow(`<span>Agent paid <span class="num">${fmt(c)}</span> for ${tool}.</span> <span class="num">${fmt(F-c)}</span> <span>free</span>`,tagHtml("fixture"));
   }
   HD.i++; heroPaint(cue);
   return 1250;
@@ -1077,7 +1082,7 @@ function heroStill(){
   HD.items=[]; HD.i=0; HD.note=""; HD.reset=false; HD.remaining=1250;
   if(reduced()){
     HD.items=[{id:1,tool:"flights.search",c:120,st:"captured"},{id:2,tool:"pdf.extract",c:75,st:"captured"},{id:3,tool:"geocode.batch",c:250,st:"captured"},{id:4,tool:"filings.fetch",c:300,st:"captured"},{id:5,tool:"summarize.long",c:475,st:"accrued"},{id:6,tool:"summarize.long",c:475,st:"accrued"}];
-    HD.note=`<strong>Refused.</strong> <span>summarize.long at <span class="num">$4.75</span> would pass the cap. <span class="num">$3.05</span> stays free.</span> ${tagHtml("fixture")}`;
+    HD.note=trow(`<strong>Refused.</strong> <span>summarize.long at <span class="num">$4.75</span> would pass the cap. <span class="num">$3.05</span> stays free.</span>`,tagHtml("fixture"));
   }
   heroPaint({animate:false});
 }
@@ -1122,40 +1127,38 @@ const FAQ=[
 ];
 V.home=()=>`
 <section class="hero"><div class="wrap">
-  <h1>Give your agent a budget it cannot break.</h1>
-  <p class="lede">One PayPal hold becomes a spending limit that lives outside the model. Approve once, watch it spend, void whenever you want.</p>
-  <div class="ctas"><a class="btn accent" href="/lease?showcase=1">Open showcase lease</a><a class="btn" href="/signup">Start with a $20 hold</a><a class="btn" href="/" data-act="sample">Explore a sample lease</a></div>
-  <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><button class="btn sm" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause the demo</button></div>
+  <div class="herotop">
+    <h1>Give your agent a budget it cannot break.</h1>
+    <div class="side">
+      <p class="lede">One PayPal hold becomes a spending limit that lives outside the model. Approve once, watch it spend, void whenever you want.</p>
+      <div class="ctas"><a class="btn accent" href="/lease?showcase=1">Open showcase lease</a><a class="btn" href="/signup">Start with a $20 hold</a><a class="tert" href="/" data-act="sample">Explore a sample lease</a></div>
+    </div>
+  </div>
+  <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><div class="herotools"><button class="link-btn" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause the demo</button></div></div>
   <p class="sr">An animated lease cord. An agent ties paid calls onto a twenty dollar hold, calls are settled in one capture, and a call that would pass the cap is refused.</p>
 </div></section>
 
-<section class="why sect" id="why" style="margin-top:var(--s9)"><div class="wrap">
-  <h2 class="big2">Agents can pay now. Most people do not trust them to.</h2>
-  <div class="gap">
-    <div class="gapi"><div class="gapn">72%</div><p class="muted">of 2,065 US consumers had used an AI assistant to shop.</p></div>
-    <div class="gapi"><div class="gapn">23%</div><p class="muted">trust AI to manage their payments.</p></div>
+<section class="why sect" id="why"><div class="wrap">
+  <h2 class="big2">Twelve $1.00 captures paid $6.24 in fees. One $12.00 capture would pay about $0.91.</h2>
+  <p class="lede">These come from our own PayPal sandbox log, not from a brochure.</p>
+  <div class="receipt">
+    <div class="rrow"><span class="what">Fees on twelve $1.00 captures of one authorization</span><span class="val">$6.24</span><span class="tags">${tagHtml("measured")}</span></div>
+    <div class="rrow"><span class="what">Fee on one $12.00 capture, from the same fee model</span><span class="val">$0.91</span><span class="tags">${tagHtml("computed")}</span></div>
+    <div class="rrow"><span class="what">What PayPal answered when we tried to capture after a void</span><span class="val">422</span><span class="tags">${tagHtml("measured")}</span></div>
   </div>
-  <div class="tcs" aria-hidden="true"><div class="tcord" style="--p:72"></div><div class="tcord hot" style="--p:23"></div></div>
-  <p class="src">Visa Trust Index, fieldwork late May 2026, reported by <a href="https://enterprisedna.co/resources/news/visa-trust-index-agentic-commerce-consumer-payments-2026/" target="_blank" rel="noopener">Enterprise DNA</a>. Visa sponsored the survey.</p>
-  <h3 class="pivot">A separate survey, across six markets, asked what people would need.</h3>
-  <div class="asks">
-    <div><div class="n">30%</div><p>name spending caps as a non negotiable.</p></div>
-    <div><div class="n">29%</div><p>name instant revocation.</p></div>
-    <div><div class="n">28%</div><p>name easy cancellation.</p></div>
-  </div>
-  <p class="src">Checkout.com consumer research across six markets, <a href="https://www.checkout.com/newsroom/consumer-demand-for-ai-shopping-is-forming-fast-but-trust-for-agentic-commerce-is-still-catching-up" target="_blank" rel="noopener">press release</a>. It does not state the sample size, and it is a different survey from the Visa one above. 27% said they trust no organization to run an AI shopping agent.</p>
-  <p class="pivot" style="margin-top:var(--s7)">Pashadhara is built around those three controls, checked outside the model.</p>
+  <a class="rawlink" href="/" data-act="sample-proof">Read the twelve raw rows</a>
 </div></section>
 
-<section class="own sect"><div class="wrap">
-  <h2 class="big2">We measured the other half.</h2>
-  <p class="lede">Controls are only worth having if the money moves the way you expect. These come from our own PayPal sandbox log, not from a brochure.</p>
-  <div class="pair">
-    <div><div class="n">$6.24</div><p>fees on twelve $1.00 captures of one authorization ${tagHtml("measured")}</p></div>
-    <div><div class="n">$0.91</div><p>fee on one $12.00 capture, from the same fee model ${tagHtml("computed")}</p></div>
-    <div><div class="n">422</div><p>what PayPal answered when we tried to capture after a void ${tagHtml("measured")}</p></div>
-  </div>
-  <p style="margin-top:var(--s6)"><a href="/" data-act="sample-proof">Read the twelve raw rows</a></p>
+<section class="trust" id="trust"><div class="wrap">
+  <p class="stat"><b>72%</b> of US consumers have used an AI assistant to shop. <b>23%</b> trust AI to manage their payments. In a separate six market survey, <b>30%</b> named spending caps a non negotiable.</p>
+  <details class="srcs" id="sources"><summary>Sources and how we read them</summary>
+    <ul>
+      <li><a href="https://enterprisedna.co/resources/news/visa-trust-index-agentic-commerce-consumer-payments-2026/" target="_blank" rel="noopener">Visa Trust Index, via Enterprise DNA</a>. 2,065 US consumers, late May 2026. 72% used an AI assistant for shopping, 23% trust AI to manage their payments. Sponsored by Visa. Fieldwork firm not named.</li>
+      <li><a href="https://www.checkout.com/newsroom/consumer-demand-for-ai-shopping-is-forming-fast-but-trust-for-agentic-commerce-is-still-catching-up" target="_blank" rel="noopener">Checkout.com consumer research</a>. Six markets, a different survey from the Visa one. 30% spending caps, 29% instant revocation, 28% easy cancellation, 27% trust no organization to run an AI shopping agent. The page gives no sample size and its dates disagree, so treat it as directional.</li>
+      <li><a href="https://dev.to/azizanapp/what-regulators-banks-and-consultancies-say-about-controlling-ai-agent-spending-11-documents-1l0g" target="_blank" rel="noopener">A summary of 11 regulator, bank and consultancy documents</a>. A secondary source. It reports that guidance converges on limits outside the model, a check at payment time, escalation above a threshold, and clear accountability. We did not check the original documents.</li>
+      <li>Our own figures come from <span class="mono">evidence/spike2-log.masked.jsonl</span>, a PayPal sandbox run on 2026-11-06 UTC. Each is tagged measured or computed where it appears.</li>
+    </ul>
+  </details>
 </div></section>
 
 <section class="sect" id="how"><div class="wrap">
@@ -1172,32 +1175,23 @@ V.home=()=>`
   <p class="lede">PayPal has no agent wallet. We build on an authorization hold, and a hold has limits we would rather you read here than discover later.</p>
   <div class="cols">
     <div><h3>The database enforces</h3><ul>
-      <li>Your cap and your per-call ceiling, checked on every call.</li>
-      <li>Every amount. Money is whole cents and no model chooses one.</li>
-      <li>Escrow payouts, from the rubric you set before the job.</li>
-      <li>A void you confirm by typing the held amount.</li></ul></div>
+      <li><span>Your cap and your per-call ceiling, checked on every call.</span></li>
+      <li><span>Every amount. Money is whole cents and no model chooses one.</span></li>
+      <li><span>Escrow payouts, from the rubric you set before the job.</span></li>
+      <li><span>A void you confirm by typing the held amount.</span></li></ul></div>
     <div><h3>PayPal decides</h3><ul>
-      <li>A hold is honored for about 72 hours, then it is best effort ${tagHtml("documented","from PayPal docs")}</li>
-      <li>Reauthorize is allowed once, from day 4 to day 29 ${tagHtml("measured","wording of a 422 response")}</li>
-      <li>PayPal's default overage limit is 115% of an order, so the 100% line is our own cap, not PayPal's.</li>
-      <li>A $1.00 sandbox payout reached SUCCESS 24 seconds after it was created ${tagHtml("measured")}</li>
-      <li>An authorization carries an expiry time 29 days after it was created ${tagHtml("measured")}</li>
-      <li>Not proven yet: reauthorize on day 4 and capture after day 3.</li>
-      <li>If PayPal does not answer, the state is unknown until we read it.</li></ul></div>
+      <li><span>A hold is honored for about 72 hours, then it is best effort.</span><span class="tags">${tagHtml("documented","from PayPal docs")}</span></li>
+      <li><span>Reauthorize is allowed once, from day 4 to day 29.</span><span class="tags">${tagHtml("measured","wording of a 422 response")}</span></li>
+      <li><span>PayPal's default overage limit is 115% of an order, so the 100% line is our own cap, not PayPal's.</span></li>
+      <li><span>A $1.00 sandbox payout reached SUCCESS 24 seconds after it was created.</span><span class="tags">${tagHtml("measured")}</span></li>
+      <li><span>An authorization carries an expiry time 29 days after it was created.</span><span class="tags">${tagHtml("measured")}</span></li>
+      <li><span>Not proven yet: reauthorize on day 4 and capture after day 3.</span></li>
+      <li><span>If PayPal does not answer, the state is unknown until we read it.</span></li></ul></div>
   </div>
+  <p class="builtfor">Built for builders shipping an agent that pays, teams that need a stop button, sellers who deliver work, and anyone watching the fee line.</p>
 </div></section>
 
-<section class="sect"><div class="wrap">
-  <h2 class="big2">Built for the people who hand agents tools.</h2>
-  <div class="bento">
-    <div class="b1"><h3>Builders shipping an agent that pays</h3><p>Give it a gateway token and a limit instead of a card. Watch every call tie onto the cord as it happens.</p></div>
-    <div class="b2"><h3>Teams that need a stop button</h3><p>One void, one typed amount, and the hold is released.</p></div>
-    <div class="b3"><h3>Sellers who deliver work</h3><p>Escrowed jobs pay from a rubric the buyer set first, so the number is never a surprise.</p></div>
-    <div class="b4"><h3>Anyone watching the fee line</h3><p>Batching captures turned $6.24 of fees into about $0.91 on the same twelve dollars in our own log.</p></div>
-  </div>
-</div></section>
-
-<section class="sect" id="faq" style="padding-top:0"><div class="wrap">
+<section class="sect" id="faq" style="padding-top:var(--s8)"><div class="wrap">
   <h2 class="big2">Questions worth asking first.</h2>
   <div class="faq">${FAQ.map(([q,a])=>`<details><summary>${q}</summary><p>${a}</p></details>`).join("")}</div>
 </div></section>
@@ -1206,16 +1200,6 @@ V.home=()=>`
   <h2>Hand your agent a limit, not your card.</h2>
   <div class="ctas"><a class="btn accent" href="/signup">Start with a $20 hold</a><a class="btn" href="/" data-act="sample">Explore a sample lease</a></div>
   <p class="help" style="margin-top:var(--s5)">Sandbox only. No real money moves.</p>
-</div></section>
-
-<section class="sect own" id="sources" style="padding-block:var(--s7)"><div class="wrap">
-  <h3 style="font-size:1.25rem;letter-spacing:-.01em">Sources and how we read them</h3>
-  <ul style="margin:var(--s4) 0 0;padding-left:1.1rem;display:grid;gap:var(--s2);max-width:46rem">
-    <li><a href="https://enterprisedna.co/resources/news/visa-trust-index-agentic-commerce-consumer-payments-2026/" target="_blank" rel="noopener">Visa Trust Index, via Enterprise DNA</a>. 2,065 US consumers, late May 2026. 72% used an AI assistant for shopping, 23% trust AI to manage their payments. Sponsored by Visa. Fieldwork firm not named.</li>
-    <li><a href="https://www.checkout.com/newsroom/consumer-demand-for-ai-shopping-is-forming-fast-but-trust-for-agentic-commerce-is-still-catching-up" target="_blank" rel="noopener">Checkout.com consumer research</a>. Six markets. 30% spending caps, 29% instant revocation, 28% easy cancellation, 27% trust no organization. The page gives no sample size and its dates disagree, so treat it as directional.</li>
-    <li><a href="https://dev.to/azizanapp/what-regulators-banks-and-consultancies-say-about-controlling-ai-agent-spending-11-documents-1l0g" target="_blank" rel="noopener">A summary of 11 regulator, bank and consultancy documents</a>. A secondary source. It reports that guidance converges on limits outside the model, a check at payment time, escalation above a threshold, and clear accountability. We did not check the original documents.</li>
-    <li>Our own figures come from <span class="mono">evidence/spike2-log.masked.jsonl</span>, a PayPal sandbox run on 2026-11-06 UTC. Each is tagged measured or computed where it appears.</li>
-  </ul>
 </div></section>`;
 function initHome(){
   disposeHero();
@@ -1238,7 +1222,7 @@ const TOKEN="pd_test_8f3a91c2e5b7440d";
 function paintFlow(focus){
   const s=S.su, login=s.mode==="login";
   const side=$("#fs"), fm=$("#fm"); if(!side)return;
-  renderChrome("flow","");
+  renderChrome("flow","");setGround();
   let sideH="",mainH="";
   const vc=o=>`<div class="vc" aria-hidden="true">${cordSVG(Object.assign({vertical:true,interactive:false,settle:false,label:""},o))}</div>`;
   const sampleItems=[{id:1,c:120,st:"captured"},{id:2,c:75,st:"captured"},{id:3,c:250,st:"captured"},{id:4,c:300,st:"captured"},{id:5,c:40,st:"accrued"},{id:6,c:115,st:"accrued"}];
@@ -1345,12 +1329,13 @@ function verifyCode(){
 function siteClick(e){
   const el=e.target.closest("[data-scroll],[data-act]"); if(!el)return false;
   const sc=el.dataset.scroll;
-  if(sc){e.preventDefault();const t=document.getElementById(sc);if(t){t.scrollIntoView({behavior:reduced()?"auto":"smooth",block:"start"});history.replaceState(null,"","/#"+sc)}return true}
+  if(sc){e.preventDefault();const t=document.getElementById(sc);if(t){if(t.tagName==="DETAILS")t.open=true;t.scrollIntoView({behavior:reduced()?"auto":"smooth",block:"start"});history.replaceState(null,"","/#"+sc)}return true}
   const a=el.dataset.act, s=S.su;
   if(el.getAttribute("aria-disabled")==="true"&&a!=="how"){e.preventDefault();return true}
   switch(a){
     case "showcase-run": case "showcase-try": e.preventDefault(); void showcaseAction(a==="showcase-run"?"run":"try"); return true;
     case "sample": case "sample-proof": e.preventDefault(); store.del(LIVE_KEY); resetSample(); S.user={name:"Sample",sample:true}; go(a==="sample"?"/lease":"/proof"); return true;
+    case "theme": {const d=!darkView();try{localStorage.setItem(THEME_KEY,d?"dark":"light")}catch(e){}el.setAttribute("aria-pressed",String(d));el.textContent=d?"Light view":"Dark view";setGround();return true}
     case "signout": stopRun(); store.del(LIVE_KEY); S.user=null; S.su=suFresh("signup"); go("/",true); say("Signed out."); return true;
     case "hero-pause": {const p=!HD.paused;HD.paused=p;el.textContent=p?"Play the demo":"Pause the demo";el.setAttribute("aria-pressed",String(p));heroPlayback();return true}
     case "how": howPaint(+el.dataset.i); el.focus(); return true;
@@ -1423,6 +1408,14 @@ on(document,"keydown",e=>{
    Router and events
 ============================================================= */
 let current="";
+const THEME_KEY="pashadhara-theme";
+const darkView=()=>{try{return localStorage.getItem(THEME_KEY)==="dark"}catch(e){return false}};
+function setGround(){
+  const m=document.body.dataset.mode;
+  if(m==="app"&&darkView())document.body.dataset.theme="dark";else document.body.removeAttribute("data-theme");
+  const pearl=(m==="app"&&S.user&&S.status==="active")||(m==="flow"&&S.su.mode==="signup"&&S.su.step>=6);
+  if(pearl)document.body.dataset.ground="pearl";else document.body.removeAttribute("data-ground");
+}
 function mount(){
   liveTake();
   const r=route();
@@ -1439,6 +1432,7 @@ function mount(){
   current=v;
   const mode=v==="home"?"site":v==="flow"?"flow":"app";
   document.body.classList.toggle("lease",v==="lease");
+  document.body.dataset.mode=mode;setGround();
   const main=$("#main");
   if(v==="home"){renderChrome("site",v);document.title="Pashadhara | A budget your agent cannot break";main.innerHTML=V.home();initHome()}
   else if(v==="flow"){main.innerHTML=V.flow();paintFlow(mount.once?"h1":null)}
@@ -1466,7 +1460,7 @@ function mount(){
   window.scrollTo(0,0);
   if(mount.once)say(document.title);
   if(mount.once&&v!=="flow")main.focus({preventScroll:true});
-  if(v==="home"&&location.hash){const t=document.getElementById(location.hash.slice(1));if(t)later(()=>t.scrollIntoView({block:"start"}),60)}
+  if(v==="home"&&location.hash){const t=document.getElementById(location.hash.slice(1));if(t){if(t.tagName==="DETAILS")t.open=true;later(()=>t.scrollIntoView({block:"start"}),60)}}
   save();
   mount.once=true;
 }
