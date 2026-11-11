@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createMcp, unavailableKernelMeter, type Meter } from '../src/mcp.ts';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-03-26' };
 const available = async () => ['text_stats', 'sha256_digest'] as const;
@@ -61,6 +63,40 @@ test('MCP lists only registered tools', async () => {
   const app = createMcp(async (_l, _t, _k, work) => ({ ok: true, result: await work(new AbortController().signal) }), async () => null, async () => ['sha256_digest']);
   const message = await rpc(app, 'tools/list');
   assert.deepEqual(message.result.tools.map((x: any) => x.name), ['sha256_digest']);
+});
+
+test('browser origins must match configured site origin before authentication or tool execution', async () => {
+  let resolutions = 0;
+  const app = createMcp(unavailableKernelMeter, async () => { resolutions++; return null; }, available, undefined, { allowedOrigins: ['https://site.example'] });
+  const send = (origin?: string) => app.request('http://localhost/mcp', {
+    method: 'POST', headers: { ...headers, ...(origin === undefined ? {} : { origin }) },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+  });
+  for (const origin of ['https://evil.example', 'https://site.example.evil.example', 'null', 'https://site.example/']) {
+    assert.equal((await send(origin)).status, 403);
+  }
+  assert.equal(resolutions, 0);
+  assert.equal((await send('https://site.example')).status, 200);
+  assert.equal((await send()).status, 200);
+  assert.equal(resolutions, 2);
+  const closed = createMcp(unavailableKernelMeter, async () => null, available);
+  assert.equal((await closed.request('http://localhost/mcp', { method: 'POST', headers: { ...headers, origin: 'https://site.example' }, body: '{}' })).status, 403);
+});
+
+test('official MCP client discovers registry prices and calls a tool over Streamable HTTP', async () => {
+  const app = createMcp(async (_l, _t, _k, work) => ({ ok: true, result: await work(new AbortController().signal) }),
+    async () => 'fixture', async () => [{ id: 'text_stats', price_minor: 2 }]);
+  const client = new Client({ name: 'compatibility-test', version: '1.0.0' });
+  const transport = new StreamableHTTPClientTransport(new URL('http://localhost/mcp'), {
+    fetch: async (input, init) => app.fetch(new Request(input, init)),
+  });
+  await client.connect(transport);
+  try {
+    const listed = await client.listTools();
+    assert.equal(listed.tools[0]?._meta?.['pashadhara/price_minor'], 2);
+    const result = await client.callTool({ name: 'text_stats', arguments: { text: 'hello world', idempotency_key: key('text_stats', 'hello world') } });
+    assert.deepEqual(result.structuredContent, { words: 2, lines: 1, bytes: 11 });
+  } finally { await client.close(); }
 });
 
 test('production meter fails closed until nonce binding is atomic', async () => {

@@ -8,6 +8,12 @@ export const meterReasons = {
   refused_cap: 'cap_reached', refused_exposure: 'exposure_limit',
   refused_window: 'window_ended', refused_inactive: 'lease_not_active',
 } as const;
+const nextActions = {
+  refused_cap: 'Choose a cheaper tool or ask the buyer to approve a new lease.',
+  refused_exposure: 'Wait for settlement before retrying or choose a cheaper tool.',
+  refused_window: 'Ask the buyer to approve a new lease.',
+  refused_inactive: 'Choose an active tool.',
+} as const;
 
 /** One overall deadline per call, counted from the moment the call arrives: wait for a pool slot and the lease lock, then the model. */
 export const PROVIDER_MS = 15_000;
@@ -104,19 +110,24 @@ export function kernelMeter(db: Database, deadlines?: Deadlines): Meter {
         output ??= runBeforeDeadline(work, signal); // a serialization retry must not call the provider twice
         await output;
         if (!await windowStillOpen(tx, lease)) throw new WindowClosed();
-        return { usage, output };
+        const { hold } = await balances(tx, lease);
+        return { usage, output, hold };
       });
       const { usage } = result;
       if (usage.replayed) return { ok: false, error: 'idempotency_conflict' };
-      if (usage.status === 'served') return { ok: true, result: await result.output! };
+      if (usage.status === 'served') return { ok: true, result: {
+        ...await result.output!,
+        receipt: { provenance: 'computed', lease_id: lease, tool_call_id: usage.id, ledger_group_id: usage.ledger_group_id,
+          charged_minor: Number(usage.amount_minor), remaining_minor: Number(result.hold) },
+      } };
       const { hold } = await db.transaction(null, tx => balances(tx, lease));
-      return { ok: false, reason: meterReasons[usage.status], price_minor: Number(usage.amount_minor), remaining_minor: Number(hold), lease_id: lease };
+      return { ok: false, reason: meterReasons[usage.status], price_minor: Number(usage.amount_minor), remaining_minor: Number(hold), lease_id: lease, next_action: nextActions[usage.status] };
     } catch (error) {
       if (error instanceof Busy) return { ok: false, error: 'busy', charged: false };
       if (error instanceof ToolFailure) return { ok: false, error: 'tool_failed', charged: false };
       if (error instanceof WindowClosed) {
         const { hold } = await db.transaction(null, tx => balances(tx, lease));
-        return { ok: false, reason: meterReasons.refused_window, price_minor: Number(price), remaining_minor: Number(hold), lease_id: lease };
+        return { ok: false, reason: meterReasons.refused_window, price_minor: Number(price), remaining_minor: Number(hold), lease_id: lease, next_action: nextActions.refused_window };
       }
       try { logError(new Request('http://localhost/mcp'), 'meter', error); } catch { /* logging must not open the gate */ }
       return { ok: false, error: 'metering_unavailable' };

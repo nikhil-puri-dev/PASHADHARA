@@ -39,11 +39,13 @@ export const unavailableKernelMeter: Meter = async () => ({ ok: false, error: 'm
 /** The lease resolver must verify a scoped bearer token, not merely parse one. */
 export function createMcp(
   meter: Meter, resolveLease: (request: Request) => Promise<string | null>,
-  available: () => Promise<readonly string[]>, tools: readonly ToolDef[] = toyTools,
-  budget: { lockWaitMs?: number } = {},
+  available: () => Promise<readonly (string | { id: string; price_minor: number })[]>, tools: readonly ToolDef[] = toyTools,
+  budget: { lockWaitMs?: number; allowedOrigins?: readonly string[] } = {},
 ) {
   const app = new Hono();
   app.all('/mcp', async c => {
+    const origin = c.req.header('origin');
+    if (origin !== undefined && !budget.allowedOrigins?.includes(origin)) return c.json({ error: 'origin_not_allowed' }, 403);
     // One budget from request entry: authentication (which uses a pool slot) counts against the same lock wait as the meter.
     const entered = Date.now();
     let waitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -87,9 +89,13 @@ export function createMcp(
     }
     server.server.setRequestHandler(ListToolsRequestSchema, async () => {
       const enabled = await available();
-      return { tools: tools.filter(tool => enabled.includes(tool.name)).map(tool => ({
+      return { tools: tools.filter(tool => enabled.some(item => (typeof item === 'string' ? item : item.id) === tool.name)).map(tool => {
+        const entry = enabled.find(item => typeof item !== 'string' && item.id === tool.name);
+        const price = typeof entry === 'object' ? entry.price_minor : undefined;
+        return {
         name: tool.name,
-        description: tool.description,
+        description: price === undefined ? tool.description : `${tool.description} Price: ${price} USD cents per call (computed from server registry).`,
+        ...(price === undefined ? {} : { _meta: { 'pashadhara/price_minor': price, 'pashadhara/currency': 'USD' } }),
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -98,7 +104,7 @@ export function createMcp(
           },
           required: ['text', 'idempotency_key'],
         },
-      })) };
+      }; }) };
     });
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     await server.connect(transport);
@@ -109,7 +115,13 @@ export function createMcp(
 
 export function registeredTools(db: Database, names: readonly string[] = toyTools.map(tool => tool.name)) {
   return () => db.transaction(null, async tx => {
-    const rows = await tx.query<{ id: string }>('select id from public.tools where active and id=any($1::text[])', [names]);
-    return names.filter(name => rows.rows.some(row => row.id === name));
+    const rows = await tx.query<{ id: string; price_minor: string }>('select id,price_minor from public.tools where active and id=any($1::text[])', [names]);
+    return names.flatMap(name => {
+      const row = rows.rows.find(item => item.id === name);
+      if (!row) return [];
+      const price = Number(row.price_minor);
+      if (!Number.isSafeInteger(price) || price <= 0) throw new Error('Tool price is outside the safe integer range');
+      return [{ id: row.id, price_minor: price }];
+    });
   });
 }

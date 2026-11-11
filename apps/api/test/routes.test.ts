@@ -34,6 +34,7 @@ for (const [path, methods] of Object.entries(contract.paths)) {
       const handlers = { [operation.operationId]: async () => ({ status: Number(status), ...(media && media !== 'text/event-stream' ? { body: sample(content[media].schema) } : {}) }) };
       const app = createRoutes(contract, handlers, async () => ({ fixture: true }));
       const requestBody = operation.requestBody?.required ? sample(operation.requestBody.content['application/json'].schema) : undefined;
+      if (operation.operationId === 'createJob') requestBody.acceptance = { criteria: 'Fixture criteria' };
       const url = `http://localhost/api${path.replace(/\{[^}]+\}/g, uuid)}`;
       const headers = new Headers({ 'content-type': 'application/json', 'X-Pashadhara-Lease': uuid, 'Idempotency-Key': 'fixture' });
       if (operation.operationId === 'receivePayPalWebhook') {
@@ -90,4 +91,17 @@ test('oversize job acceptance is rejected before the kernel reserves funds', asy
   });
   assert.equal(response.status, 400);
   assert.equal(called, false);
+});
+
+test('job creation rejects missing criteria and unsupported content types before reserving funds', async () => {
+  let called = false;
+  const app = createRoutes(contract, { createJob: async () => { called = true; return { status: 201 }; } }, async () => ({}));
+  for (const acceptance of [{}, { criteria: '   ' }, { criteria: 'Check it', content_type: 'application/json' }]) {
+    const response = await app.request('http://localhost/api/v1/jobs', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ lease_id: uuid, seller_id: uuid, amount_minor: 1, rubric: [], acceptance }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal(called, false);
+  }
 });

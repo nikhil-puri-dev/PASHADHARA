@@ -16,6 +16,7 @@ export function createApp(options: {
   /** Defaults to the fail-closed meter and the deterministic tools. The entry point passes the real ones. */
   meter?: Meter;
   tools?: readonly ToolDef[];
+  mcpAllowedOrigins?: readonly string[];
 }) {
   const handlers = { ...readHandlers(options.db), ...options.handlers };
   if (options.webhook) handlers.receivePayPalWebhook = webhookHandler(options.webhook);
@@ -25,6 +26,7 @@ export function createApp(options: {
     options.meter ?? unavailableKernelMeter, options.resolveMcpLease,
     options.tools ? registeredTools(options.db, options.tools.map(tool => tool.name)) : registeredTools(options.db),
     options.tools,
+    { allowedOrigins: options.mcpAllowedOrigins },
   ));
   app.onError((error, c) => {
     logError(c.req.raw, c.get('operation') ?? 'apiRequest', error);

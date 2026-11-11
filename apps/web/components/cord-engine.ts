@@ -1290,7 +1290,7 @@ V.home=()=>`
    </ol></section>
   </div>
 </div></section>
-<section class="home-live-desk sect"><div class="wrap"><div><p class="eyebrow">Separate sandbox pilot</p><h2 class="big2">The small sandbox lease.</h2><p>The sandbox pilot uses a $2 hold and a 3-cent paid tool. It is a narrow integration proof, shown separately from the $5,000 fixture scenario.</p></div>${deskHtml("home")}</div></section>
+<section class="home-live-desk sect"><div class="wrap"><div><p class="eyebrow">Separate sandbox pilot</p><h2 class="big2">The small sandbox lease.</h2><p>The sandbox pilot uses a $2 hold and a 3-cent paid tool. It is a narrow integration proof, shown separately from the $5,000 fixture scenario.</p><p><a href="/finance">See the recorded finance investigation</a></p></div>${deskHtml("home")}</div></section>
 
 <section class="sect" id="how"><div class="wrap">
   <h2 class="big2">One hold. Five moves.</h2>

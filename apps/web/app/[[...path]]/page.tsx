@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CordApp } from "../../components/cord-app";
 import { DelegationApp } from "../../components/delegation-app";
+import { FinanceInvestigation } from "../../components/finance-investigation";
 
 const TITLES: Record<string, string> = {
   "": "Pashadhara | A budget your agent cannot break",
@@ -14,6 +15,7 @@ const TITLES: Record<string, string> = {
   proof: "Proof | Pashadhara",
   quickstart: "Developer quickstart | Pashadhara",
   delegation: "Delegated authority | Pashadhara",
+  finance: "Recorded finance investigation | Pashadhara",
 };
 type Props = { params: Promise<{ path?: string[] }> };
 
@@ -30,5 +32,5 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function Page({ params }: Props) {
   const route = await routeKey(params);
-  return route === "delegation" ? <DelegationApp /> : <CordApp />;
+  return route === "delegation" ? <DelegationApp /> : route === "finance" ? <FinanceInvestigation /> : <CordApp />;
 }

@@ -41,7 +41,7 @@ function approvalUrl(evidence: Evidence, orderId: string) {
   return url;
 }
 
-function callbackBase(value: string) {
+export function callbackBase(value: string) {
   const url = new URL(value);
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && url.hostname === '127.0.0.1')) {
     throw new ApiError('API_BASE_URL requires HTTPS outside loopback');

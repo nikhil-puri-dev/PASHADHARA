@@ -60,11 +60,18 @@ test('served call debits the lease, the next call that would pass the cap is ref
   const first = await g.call('First document to summarise.');
   assert.equal(first.isError, undefined);
   assert.equal(first.structuredContent.summary, 'A short summary.');
+  assert.deepEqual(first.structuredContent.receipt, {
+    provenance: 'computed', lease_id: lease,
+    tool_call_id: (first.structuredContent.receipt as any).tool_call_id,
+    ledger_group_id: (first.structuredContent.receipt as any).ledger_group_id,
+    charged_minor: 3, remaining_minor: 2,
+  });
   assert.equal(g.providerCalls(), 1);
   const second = await g.call('Second document to summarise.');
   assert.equal(second.isError, true);
   assert.equal(second.structuredContent.reason, 'cap_reached');
   assert.equal(second.structuredContent.remaining_minor, 2);
+  assert.match(String(second.structuredContent.next_action), /cheaper tool/);
   assert.equal(g.providerCalls(), 1, 'refused call must not reach the provider');
   const journal = await rows(lease);
   const served = journal.find(row => row.status === 'served')!;
@@ -72,6 +79,7 @@ test('served call debits the lease, the next call that would pass the cap is ref
   assert.equal(journal.length, 2);
   assert.equal(served.price_minor, '3');
   assert.notEqual(served.ledger_group_id, null);
+  assert.equal((first.structuredContent.receipt as any).ledger_group_id, served.ledger_group_id);
   assert.equal(refused.ledger_group_id, null);
 
   // Replayed key: no new charge, no provider call.

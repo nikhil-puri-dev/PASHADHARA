@@ -93,10 +93,14 @@ export function createRoutes(contract: Contract, handlers: Record<string, RouteH
             try { body = JSON.parse(rawBody); } catch { return problem(400, 'Invalid JSON'); }
             if (!bodySchema(body)) return problem(400, 'Invalid request body');
             if (name === 'createJob') {
-              const { max_bytes } = (body as { acceptance?: { max_bytes?: number } }).acceptance ?? {};
-              if (max_bytes !== undefined && (!Number.isSafeInteger(max_bytes) || max_bytes <= 0 || max_bytes > 8192)) {
+              const { max_bytes, criteria, content_type, sha256, test_command_id } = (body as { acceptance?: Record<string, unknown> }).acceptance ?? {};
+              if (max_bytes !== undefined && (typeof max_bytes !== 'number' || !Number.isSafeInteger(max_bytes) || max_bytes <= 0 || max_bytes > 8192)) {
                 return problem(400, 'max_bytes must be 1 to 8192');
               }
+              if (typeof criteria !== 'string' || !criteria.trim() || criteria.length > 2000) return problem(400, 'Buyer criteria must contain 1 to 2000 characters');
+              if (content_type !== undefined && content_type !== 'text/plain') return problem(400, 'Only text/plain deliverables are supported');
+              if (sha256 !== undefined && (typeof sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(sha256))) return problem(400, 'Invalid acceptance digest');
+              if (test_command_id !== undefined) return problem(400, 'No acceptance commands are allow-listed');
             }
             if (name === 'createLease' && [...(body as { buyer_ref: string }).buyer_ref].length > maxBuyerRefLength) {
               return problem(400, 'buyer_ref exceeds 128 characters');

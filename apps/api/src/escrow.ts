@@ -62,7 +62,8 @@ export function escrowFlow(options: { db: Database; paypal: Gateway; judges: Jud
     if (accept.test_command_id !== undefined) throw new ApiError('No acceptance commands are allow-listed');
     if (accept.max_bytes === undefined) accept.max_bytes = DEFAULT_MAX_BYTES;
     if (accept.content_type === undefined) accept.content_type = 'text/plain';
-    if (typeof accept.criteria === 'string' && accept.criteria.length > 2000) throw new ApiError('criteria exceeds 2000 characters');
+    if (typeof accept.criteria !== 'string' || !accept.criteria.trim() || accept.criteria.length > 2000) throw new ApiError('Buyer criteria must contain 1 to 2000 characters');
+    if (accept.content_type !== 'text/plain') throw new ApiError('Only text/plain deliverables are supported');
     const usage = await commitUsage(db, input.lease_id, { kind: 'job', seller_id: input.seller_id, amount_minor: BigInt(input.amount_minor), rubric: input.rubric, acceptance: accept as never });
     if (usage.status !== 'served' || !usage.id) {
       const hold = (await db.transaction(null, tx => tx.query<{ hold: string }>(
@@ -107,7 +108,7 @@ export function escrowFlow(options: { db: Database; paypal: Gateway; judges: Jud
   /** Judge, let the kernel decide, capture the decided amount, queue the payout, then send it after the hold. */
   async function finishJob(job: JobRow, text: string) {
     const acceptance = job.acceptance;
-    const judgment = await runJudges({ job_id: job.id, deliverable: { text, content_type: acceptance.content_type ?? 'text/plain' }, acceptance, providers: options.judges!, guard: new SpendGuard(jobCost) });
+    const judgment = await runJudges({ job_id: job.id, deliverable: { text, content_type: 'text/plain' }, acceptance, providers: options.judges!, guard: new SpendGuard(jobCost) });
     const decision = await recordJudgment(db, job.lease_id, job.id, 1, judgment);
     if (!['release', 'partial'].includes(decision.outcome) || decision.amount_minor <= 0n) return;
     if (!await captureDecision(job.lease_id, job.id, decision.id, decision.amount_minor)) return;

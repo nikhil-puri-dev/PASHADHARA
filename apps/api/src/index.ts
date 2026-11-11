@@ -5,11 +5,12 @@ import { parse } from 'yaml';
 import { Database } from '../../../packages/kernel/src/db.ts';
 import { PayPalClient } from '../../../packages/paypal/src/index.ts';
 import { createApp } from './app.ts';
-import { approvalFlow } from './approval.ts';
+import { approvalFlow, callbackBase } from './approval.ts';
 import { createAuth, issueToken } from './auth.ts';
 import { readHandlers } from './read-handlers.ts';
 import { kernelMeter } from './meter.ts';
 import { summariseTool } from './summarise.ts';
+import { financeTools } from './finance-fixtures.ts';
 import { escrowFlow } from './escrow.ts';
 import { showcaseRoutes } from './showcase.ts';
 import { escrowJudges } from './judges.ts';
@@ -62,8 +63,9 @@ app.all('*', async c => {
     const tool = summariseTool({ apiKey: aiEnabled ? anthropic : undefined, limitUsd: Number(spendLimit) });
     api = createApp({
       contract: loadContract(), db, ...createAuth(db, secret, admin),
+      mcpAllowedOrigins: baseUrl ? [new URL(callbackBase(baseUrl)).origin] : [],
       meter: kernelMeter(db),
-      tools: [tool],
+      tools: [tool, ...financeTools],
       webhook: paypal && webhookId ? { webhookId, paypal, kernel: webhookStore(db) } : undefined,
       handlers: {
         ...(escrow && { recoverPayouts: async input => {
