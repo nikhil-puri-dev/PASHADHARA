@@ -1,5 +1,6 @@
 // @ts-nocheck
 import recordedShowcase from "./showcase-recorded.json";
+import proofEvidence from "./proof-evidence.json";
 /* Pashadhara cord engine. Ported from design/cord/index.html. It drives the whole interface
    imperatively into #hdr, #main and #ftr, exactly as the approved prototype does. */
 export function startCord(): () => void {
@@ -15,8 +16,9 @@ const fmt=c=>"$"+(c/100).toFixed(2);
 const feeC=c=>Math.round(49+0.0349*c);          // computed model, three measured points fit it
 const $=(s,r=document)=>r.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
-const TAG_TIP={measured:"Came back from a PayPal sandbox call",computed:"Our code derived it from measured data",documented:"What PayPal's docs say. We have not tested it",fixture:"Sample data for this prototype",recorded:"Recorded from a real sandbox run"};
+const TAG_TIP={measured:"Came back from a PayPal sandbox call",computed:"Derived by our code or verified in a test",documented:"What PayPal's docs say. We have not tested it",fixture:"Sample data for this prototype",recorded:"Recorded from a real sandbox run"};
 const tagHtml=(k,t)=>`<span class="tag ${k}" title="${TAG_TIP[k]||""}">${t||k}</span>`;
+const datedTag=(kind,date,note="")=>`${tagHtml(kind)}${note?" "+note:""} · <span class="tag-date">${date}</span>`;
 const KEY_HTML=`<span class="key" role="group" aria-label="Key"><span><i class="sw gold"></i>captured</span><span><i class="sw owed"></i>owed</span><span><i class="sw free"></i>free to spend</span></span>`;
 /* a row: words hard left, tags hard right */
 const trow=(msg,tags,cls="")=>`<div class="trow${cls?" "+cls:""}"><span class="msg">${msg}</span><span class="tags">${tags}</span></div>`;
@@ -31,9 +33,6 @@ const PART_TIP={
   released:"Released. This length went back to PayPal when the lease was voided."
 };
 const LEVEL_NAMES=["Tens","Dollars","Dimes","Cents"];
-
-/* measured: raw rows from evidence/spike2-log.masked.jsonl, auth 3JR45593UX474005K */
-const MEASURED=[["8KK17784DB464635E","16:17:20"],["3F738302AV910594B","16:17:23"],["11H34634K9873640M","16:17:26"],["7X372453FD414441H","16:17:29"],["9W4967933R4765939","16:17:31"],["1NL47230D4507635W","16:17:34"],["1EN26299VG4180452","16:17:36"],["2KU9406534856942A","16:17:39"],["5XD45021CD582593A","16:17:42"],["2WY25534LV958454K","16:17:45"],["19317627JP720332M","16:17:48"],["84F24590SX6367626","16:17:51"]];
 
 const SAMPLE=()=>[
   {id:1,tool:"flights.search",c:120,st:"captured",t:"09:02"},
@@ -51,7 +50,7 @@ const S={
   calls:SAMPLE(),
   q:0, nextId:8, clock:9*60+46,
   running:false, timer:null,
-  log:[{t:"09:44",m:"Spent $0.35 on web.search."}],
+  log:[{t:"09:44",m:"Committed $0.35 to web.search."}],
   refused:0, settles:[], voided:null,
   ui:{sel:null,voidOpen:false,approve:"idle",settleN:null,settleBusy:false,settleDone:null,
       esc:{a:{v:2,s:88},b:{v:1,s:64}}}
@@ -498,14 +497,14 @@ async function liveLoad(){
     for(const e of showcase?[]:entries){
       if(e.ref_type!=="commit"||e.account!=="COMMITTED_UNSETTLED"||e.direction!=="D")continue;
       const id=calls.length+1;
-      calls.push({id,tool:"paid call",c:e.amount_minor,st:"accrued",t:when(e.created_at),raw:e});
-      log.push({t:when(e.created_at),m:`Paid ${fmt(e.amount_minor)} for call ${id}.`});
+      calls.push({id,tool:"call",c:e.amount_minor,st:"accrued",t:when(e.created_at),raw:e});
+      log.push({t:when(e.created_at),m:`Committed ${fmt(e.amount_minor)} for call ${id}.`});
     }
     if(showcase){
       for(const row of S.showcase.calls){
         const t=when(row.created_at), amount=Number(row.price_minor);
         if(row.status==="served")calls.push({id:calls.length+1,tool:row.tool_id,c:amount,st:row.captured?"captured":"accrued",t,raw:row});
-        log.push({t,m:row.status==="served"?`Paid ${fmt(amount)} for ${row.tool_id}.`:`Refused ${fmt(amount)}: ${row.status}.`});
+        log.push({t,m:row.status==="served"?`Committed ${fmt(amount)} for ${row.tool_id}.`:`Refused ${fmt(amount)}: ${row.status}.`});
       }
     }
     if(lease.state!=="active")log.push({t:"",m:`Lease state is ${lease.state}.`});
@@ -582,7 +581,7 @@ function paintLead(){
   const s=sums();
   const el=$("#lead"); if(!el)return;
   if(S.status==="voided"){
-    paintText(el,`<h1>The hold is released.</h1><p class="sub"><span>${fmt(S.voided.C)} was captured before the void. ${S.voided.A?`${fmt(S.voided.A)} owed for earlier calls cannot be collected, because PayPal refused a capture after a void `:""}</span>${S.voided.A?`${tagHtml("measured","see Proof")}. `:""}The rest of the ${fmt(CAP)} hold went back to your PayPal. ${tagHtml("fixture")}</p>`,"h1,.sub > span:not(.tag)");
+    paintText(el,`<h1>The hold is released.</h1><p class="sub"><span>${fmt(S.voided.C)} was captured before the void. ${S.voided.A?`${fmt(S.voided.A)} owed for earlier calls was left unsettled in this sample. `:""}</span>The rest of the ${fmt(CAP)} hold went back to your PayPal. ${tagHtml("fixture")}</p>`,"h1,.sub > span:not(.tag)");
     return;
   }
   const amount=fmt(s.F), balance=`Your agent has captured <span class="balance-amount">${fmt(s.C)}</span>${s.A?` and owes <span class="balance-amount balance-owed">${fmt(s.A)}</span> more that is still held, not yet captured`:""}.`;
@@ -730,7 +729,7 @@ function paintLedger(){
     }
     return;
   }
-  el.innerHTML=`<div class="wide" tabindex="0" role="region" aria-label="Paid calls table, scrolls sideways"><table class="rt ledgerrt"><caption class="sr">Paid calls on this lease${S.user&&S.user.live?"":", fixture data"}</caption>
+  el.innerHTML=`<div class="wide" tabindex="0" role="region" aria-label="Tool calls table, scrolls sideways"><table class="rt ledgerrt"><caption class="sr">Tool calls on this lease${S.user&&S.user.live?"":", fixture data"}</caption>
    <thead><tr><th scope="col">Call</th><th scope="col" class="r">Price</th><th scope="col">State</th><th scope="col" class="r">Time</th></tr></thead>
    <tbody>${S.calls.map(rowHtml).join("")}</tbody>
    <tfoot><tr><td>Captured</td><td class="num r">${fmt(s.C)}</td><td colspan="2"></td></tr>
@@ -766,7 +765,7 @@ function paintControls(){
         <div class="mcol"><button class="btn fill cta" data-act="showcase-run">Run the agent</button>
         <div class="try"><label for="showcase-price">Price in cents</label>
           <div class="tryrow"><input id="showcase-price" type="number" min="1" step="1" value="${Math.min(Number.MAX_SAFE_INTEGER, CAP+1)}">
-          <button class="btn accent" data-act="showcase-try">Try to break it</button></div></div>
+          <button class="btn accent" data-act="showcase-try">Preview cap decision</button></div></div>
         <p class="help result" id="showcase-result" role="status"></p></div></section>`;
     }
     $("#showcase-budget").textContent=`Computed budget remaining: ${fmt(Number(data?.lease.balances.hold_available??0))}. Demo calls left: ${budget}.`;
@@ -812,7 +811,7 @@ function paintControls(){
   }else{
     const held=s.held;
     html+=`<div class="confirm" role="group" aria-labelledby="vh"><p id="vh"><strong>Void releases the whole ${fmt(held)} hold.</strong></p>
-      <p style="margin-top:8px">${s.A?`${fmt(s.A)} of it is owed for calls already made. PayPal refuses a capture after a void ${tagHtml("measured","422 AUTHORIZATION_VOIDED")}, so settle first if you want that paid. `:""}This cannot be undone.</p>
+      <p style="margin-top:8px">${s.A?`${fmt(s.A)} of it is owed for calls already made. Settle before voiding if you want those calls captured in this sample. `:""}This cannot be undone.</p>
       ${s.A?`<p style="margin-top:8px"><a href="/settle">Settle ${fmt(s.A)} first</a></p>`:""}
       <div class="field"><label for="vin">Type <span class="num">${(held/100).toFixed(2)}</span> to confirm</label><input id="vin" type="text" inputmode="decimal" autocomplete="off" aria-describedby="vhelp"></div>
       <p class="help" id="vhelp" style="margin-top:8px">The button stays off until the amount matches.${reduced()?"":" Then hold it for 1.2 seconds."}</p>
@@ -859,8 +858,8 @@ function spend(){
   }
   if(S.calls.filter(k=>k.st!=="refused").length>=NSLOT){stopRun();S.log.push({t,m:"The cord has no free slot. Settle, then start another lease."});paintLease();return false}
   const k={id:S.nextId++,tool,c,st:"accrued",t};
-  S.calls.push(k); S.log.push({t,m:`Spent ${fmt(c)} on ${tool}.`}); S.ui.sel=null;
-  say(`Spent ${fmt(c)} on ${tool}. ${fmt(sums().F)} free.`);
+  S.calls.push(k); S.log.push({t,m:`Committed ${fmt(c)} to ${tool}.`}); S.ui.sel=null;
+  say(`Committed ${fmt(c)} to ${tool}. ${fmt(sums().F)} free.`);
   paintLease({dropId:k.id});
   return true;
 }
@@ -983,7 +982,7 @@ V.settle=()=>`<div class="wrap">${slimBlock()}<div id="settleBody"></div></div>`
 function paintSettle(){
   const el=$("#settleBody"); if(!el)return;
   const items=accruedCalls(), m=items.length;
-  if(S.status==="voided"){el.innerHTML=`<h1 class="big">Nothing to settle.</h1><p class="sub" style="margin-top:24px;font-size:1.2rem;max-width:32rem">The lease is voided, and PayPal refused a capture after a void in the sandbox (measured, see Proof). Start a new lease to spend again.</p><a class="btn fill" style="margin-top:24px" href="/approve">Start a new lease</a>`;return}
+  if(S.status==="voided"){el.innerHTML=`<h1 class="big">Nothing to settle.</h1><p class="sub" style="margin-top:24px;font-size:1.2rem;max-width:32rem">The sample lease is voided. Start a new lease to spend again.</p><a class="btn fill" style="margin-top:24px" href="/approve">Start a new lease</a>`;return}
   if(!m){
     const done=S.ui.settleDone;
     const fromCapture=done&&$("#settleHead");
@@ -1099,10 +1098,10 @@ async function showcaseAction(action){
     dropped=action==="run"&&!data.reason&&!data.error;
     S.showcaseMessage=data.reason?`Refused: ${data.reason}. Computed price ${fmt(data.price_minor)}, remaining ${fmt(data.remaining_minor)}.`
       :data.error==="demo_limit"?"The demo call limit has been reached."
-      :data.charged?`The model call failed after the computed ${fmt(data.price_minor)} charge.`
+      :data.error==="tool_failed"?"The model call failed. Nothing was charged."
       :data.error?`Request unavailable: ${data.error}.`
       :action==="try"?"The kernel allows that price. No call was made."
-      :`Computed charge ${fmt(data.price_minor)}. ${data.result?.summary||""}`;
+      :`Computed amount committed ${fmt(data.price_minor)}. ${data.result?.summary||""}`;
     if(S.user?.showcase&&S.showcase?.lease.id){
       try{sessionStorage.setItem("showcase-result:"+S.showcase.lease.id,S.showcaseMessage)}catch{}
     }
@@ -1111,44 +1110,57 @@ async function showcaseAction(action){
   finally{S.showcaseBusy=false;if(current==="lease"&&S.user?.showcase)paintLease(dropped?{dropId:S.calls.length}:{});}
 }
 
-function showcaseProof(data){
-  const tables=[
-    ["Tool calls",data.calls],["Journal",data.journal.entries],["PayPal captures",data.captures],
-  ];
-  return `<div class="wrap proofpage" id="showcase-proof"><h1>Showcase proof</h1>
-    ${trow("",data.mode==="recorded"?tagHtml("recorded","recorded "+data.recorded_on):tagHtml("computed","live database rows"))}
-    ${tables.map(([name,rows])=>`<h2>${name}</h2><div class="wide" tabindex="0" role="region" aria-label="${name}, scrolls sideways"><pre>${esc(JSON.stringify(rows,null,2))}</pre></div>`).join("")}
-    <p><a href="/lease?showcase=1">Showcase lease</a></p></div>`;
-}
-
 /* ---------- proof ---------- */
 V.proof=()=>{
-  const rows=MEASURED.map(([id,t],i)=>`<tr><td class="num">${String(i+1).padStart(2,"0")}</td><td class="num">${id}</td><td class="num">${t}</td><td class="num r">$1.00</td><td class="num r">$0.52</td><td>COMPLETED</td></tr>`).join("");
-  const items=MEASURED.map((m,i)=>({id:i+1,c:100,st:"captured"}));
-  const svg=cordSVG({items,cap:2000,C:1200,A:0,F:800,vertical:isVertical(),interactive:false,settle:false,label:"Twelve measured captures of one dollar each, tied as one knot each on a cord that was authorized for twenty dollars."});
-  return `<div class="wrap proofpage">
-   <div class="proofhead"><div><h1>What PayPal actually said.</h1></div>
-   <p class="sub" style="font-size:1.1875rem">Authorization <span class="mono">3JR45593UX474005K</span> in the PayPal sandbox, recorded 2026-11-06 UTC from <span class="mono">evidence/spike2-log.masked.jsonl</span>. Every row below is from a raw capture response, not a fixture. Only account and contact fields are masked. One mocked 403 in that run is left out because it was not a real capture.</p></div>
-   <div class="cordwrap" style="margin-top:32px;max-width:${isVertical()?"420px":"none"}" aria-label="Measured captures drawn as a cord">${svg}<div style="margin-top:12px">${trow(`<span class="help">One knot of $1.00 on each pendant. The red length is the $8.00 still held after the twelfth capture, before the void.</span>`,tagHtml("computed"))}</div></div>
-   <div style="margin-top:48px" class="wide" tabindex="0" role="region" aria-label="Twelve captures table, scrolls sideways"><div class="trow caph"><span class="msg">Twelve captures, one authorization</span><span class="tags">${tagHtml("measured")}</span></div><table class="rt proofrt"><caption class="sr">Twelve captures, one authorization, measured</caption>
-    <thead><tr><th scope="col">No.</th><th scope="col">Capture id</th><th scope="col">UTC</th><th scope="col" class="r">Amount</th><th scope="col" class="r">PayPal fee</th><th scope="col">Status</th></tr></thead>
-    <tbody>${rows}</tbody>
-    <tfoot><tr><td colspan="3">Total</td><td class="num r">$12.00</td><td class="num r">$6.24</td><td class="tagcell">${tagHtml("computed")}</td></tr>
-    <tr><td colspan="3">The same $12.00 as one capture</td><td class="num r">$12.00</td><td class="num r">${fmt(feeC(1200))}</td><td class="tagcell">${tagHtml("computed")}</td></tr></tfoot></table></div>
-   <div class="three">
-    <div class="col"><h2 class="trow"><span class="msg">After the captures</span><span class="tags">${tagHtml("measured")}</span></h2><ul>
-      <li>A capture of $20.00 after $12.00 returned 422 MAX_CAPTURE_AMOUNT_EXCEEDED.</li>
-      <li>A GET read PARTIALLY_CAPTURED, then the void returned 200 and a GET read VOIDED.</li>
-      <li>A capture after the void returned 422 AUTHORIZATION_VOIDED.</li>
-      <li>A $1.00 payout created on 2026-11-06 was read again on 2026-11-08 and showed SUCCESS, completed 24 seconds after it was created.</li></ul></div>
-    <div class="col"><h2>What this does not prove</h2><ul>
-      <li>The 422 does not prove a 100% cap. PayPal says its default overage limit is 115% of the order.</li>
-      <li>Reauthorize on day 4 and capture after day 3 have not been run.</li>
-      <li>Webhook latency and order have not been measured.</li></ul></div>
-    <div class="col"><h2>Still to read</h2>
-      <p style="margin-bottom:12px"><span class="awaiting">Awaiting read</span></p>
-      <p>An independent reconciliation of our ledger against PayPal, by API read and webhook, is not connected in this prototype.</p></div>
-   </div></div>`;
+  const {fees,reconciliation,escrow,limits}=proofEvidence;
+  const money=c=>`<span class="num money">${fmt(c)}</span>`;
+  const utc=date=>date+" UTC";
+  const feeDay=utc(fees.date);
+  const reportTag=datedTag("recorded",escrow.date+" IST","(run report)");
+  const rows=fees.rows.map(({id,time,amount,fee,status},i)=>`<tr><td class="num">${String(i+1).padStart(2,"0")}</td><td class="num">${esc(id)}</td><td class="num">${time}</td><td class="r">${money(amount)}</td><td class="r">${money(fee)}</td><td>${status}</td><td class="tagcell">${tagHtml("measured")}</td></tr>`).join("");
+  const items=fees.rows.map(({amount},i)=>({id:i+1,c:amount,st:"captured"}));
+  const svg=cordSVG({items,cap:fees.cap,C:fees.total,A:0,F:fees.remaining,vertical:isVertical(),interactive:false,settle:false,label:"Recorded sandbox captures drawn as a cord"});
+  const captureDate=reconciliation.rows[0].date;
+  const sharedCaptureDate=reconciliation.rows.every(row=>row.date===captureDate);
+  const checks=reconciliation.rows.map(({id,amount,state,date})=>`<tr><th scope="row" class="mono">${esc(id)}</th><td>${money(amount)}</td><td>${state==="matched"?"Matched by fresh GET":"POST response only"} ${sharedCaptureDate?tagHtml("measured"):datedTag("measured",utc(date))}</td></tr>`).join("");
+  const auth=reconciliation.authorization;
+  return `<div class="wrap proofpage" id="sandbox-proof">
+   <div class="proofhead"><h1>PayPal sandbox proof</h1><p class="sub">Recorded evidence from the capture fee experiment and the replacement lease run.</p></div>
+   <section class="proof-section" aria-labelledby="proof-fees">
+    <h2 id="proof-fees">Capture fees on one authorization</h2>
+    <div class="cordwrap proof-cord">${svg}</div>
+    <p class="help proof-balance">Cord visualization ${datedTag("computed",feeDay)}<br>Authorized ${money(fees.cap)} ${datedTag("measured",feeDay)}<br>Still held before void ${money(fees.remaining)} ${datedTag("computed",feeDay)}</p>
+    <div class="wide" tabindex="0" role="region" aria-label="Capture fees table"><table class="rt proofrt">
+     <caption class="proof-caption">Capture POST responses ${datedTag("measured",feeDay)}</caption>
+     <thead><tr><th scope="col">No.</th><th scope="col">Capture ID</th><th scope="col">UTC</th><th scope="col" class="r">Amount</th><th scope="col" class="r">PayPal fee</th><th scope="col">Status</th><th scope="col">Evidence</th></tr></thead>
+     <tbody>${rows}</tbody>
+     <tfoot><tr><td colspan="3">Total</td><td class="r">${money(fees.total)}</td><td class="r">${money(fees.feeTotal)}</td><td colspan="2" class="tagcell">${tagHtml("computed")}</td></tr>
+     <tr><td colspan="3">Estimated fee if captured together</td><td class="r">${money(fees.total)}</td><td class="r">${money(fees.singleCaptureEstimate)}</td><td colspan="2" class="tagcell">${tagHtml("computed")}</td></tr></tfoot>
+    </table></div>
+   </section>
+   <section class="proof-section" aria-labelledby="proof-reconcile">
+    <h2 id="proof-reconcile">Capture reconciliation</h2>
+    <p class="help">Matched rows agree on capture ID, status, amount and fee in separate PayPal GET responses.</p>
+    <table class="rt reconcile-rt"><caption class="proof-caption">Replacement run captures ${sharedCaptureDate?datedTag("measured",utc(captureDate)):tagHtml("measured")}</caption><thead><tr><th scope="col">Sandbox record</th><th scope="col">Amount</th><th scope="col">Evidence</th></tr></thead>
+     <tbody>${checks}<tr><th scope="row">Earlier authorization</th><td></td><td>No capture recorded for this authorization in the log. ${datedTag("computed",utc(auth.logDate))}<br>Log entry in <code class="proof-log-path">evidence/sandbox-readonly-20261108.jsonl</code> records a PayPal GET response of ${auth.status}. ${datedTag("measured",auth.readAt)}</td></tr></tbody>
+    </table>
+   </section>
+   <section class="proof-section proof-escrow" aria-labelledby="proof-escrow">
+    <h2 id="proof-escrow">Escrow run</h2>
+    <p class="help">The run report records both verdicts and the kernel decision. Raw verdict rows are absent from the logs.</p>
+    <dl>
+     ${escrow.verdicts.map(({provider,verdict,score})=>`<div><dt>${esc(provider)}</dt><dd>${verdict} · <span class="num">${score}</span><small>${reportTag}</small></dd></div>`).join("")}
+     <div><dt>Kernel decision</dt><dd>${escrow.decision.status} ${money(escrow.decision.amount)}<small>${reportTag}</small></dd></div>
+     <div><dt>Capture</dt><dd>${money(escrow.capture.amount)} · ${escrow.capture.status} · fee ${money(escrow.capture.fee)}<small>${escrow.capture.state==="matched"?"Confirmed by PayPal GET":"POST response only"} ${datedTag("measured",utc(escrow.capture.date))}</small></dd></div>
+     <div><dt>Payout</dt><dd>${money(escrow.payout.amount)} · ${escrow.payout.status}<small>Confirmed by PayPal GET ${datedTag("measured",utc(escrow.payout.date))}</small></dd></div>
+    </dl>
+   </section>
+   <section class="proof-section" aria-labelledby="proof-limits">
+    <h2 id="proof-limits">What this does not prove</h2>
+    <p>PayPal mentioned a ${limits.overage} overage limit in an error response. ${datedTag("measured",utc(limits.date))} The run did not test that boundary.</p>
+    <p>Day-four reauthorization, webhook latency, refusal of a paid call after a real PayPal void, and PayPal timeout handling remain unproven.</p>
+   </section>
+  </div>`;
 };
 
 /* =============================================================
@@ -1164,7 +1176,7 @@ S.rules={per:500,cats:["Data and search","Documents","Maps","Translation"]};
 const CATS=["Data and search","Documents","Maps","Translation"];
 const suFresh=(mode)=>({mode,step:1,name:"",email:"",err:{},codeErr:"",resend:0,paypal:"idle",cap:2000,per:500,cats:["Data and search","Documents","Maps","Translation"],customCap:"",approve:"idle",reveal:false,copied:false,test:"idle",busy:false});
 S.su=suFresh("signup");
-const resetSample=()=>{CAP=2000;S.status="active";S.calls=SAMPLE();S.q=0;S.nextId=8;S.clock=9*60+46;S.log=[{t:"09:44",m:"Spent $0.35 on web.search."}];S.refused=0;S.settles=[];S.voided=null;S.rules={per:500,cats:[...CATS]};S.ui.sel=null;S.ui.settleDone=null;S.ui.settleN=null;S.ui.voidOpen=false;S.ui.approve="idle";stopRun()};
+const resetSample=()=>{CAP=2000;S.status="active";S.calls=SAMPLE();S.q=0;S.nextId=8;S.clock=9*60+46;S.log=[{t:"09:44",m:"Committed $0.35 to web.search."}];S.refused=0;S.settles=[];S.voided=null;S.rules={per:500,cats:[...CATS]};S.ui.sel=null;S.ui.settleDone=null;S.ui.settleN=null;S.ui.voidOpen=false;S.ui.approve="idle";stopRun()};
 
 /* ---------- chrome ---------- */
 function progressCord(step,total){
@@ -1213,14 +1225,14 @@ function renderChrome(mode,v){
   }
   renderFooter(mode);
 }
-function legend(){return `<p><span class="tag measured">measured</span> came back from a PayPal sandbox call. <span class="tag computed">computed</span> our code derived it from measured data. <span class="tag documented">documented</span> is what PayPal's docs say and we have not tested. <span class="tag fixture">fixture</span> is sample data for this prototype. Nothing on this page is live money, and nothing simulated is PayPal output.</p>`}
+function legend(){return `<p><span class="tag measured">measured</span> came back from a PayPal sandbox call. <span class="tag computed">computed</span> was derived by our code or verified in a test. <span class="tag documented">documented</span> is what PayPal's docs say and we have not tested. <span class="tag recorded">recorded</span> is a saved result from a real sandbox run. <span class="tag fixture">fixture</span> is sample data for this prototype. Nothing on this page is live money, and nothing simulated is PayPal output.</p>`}
 function renderFooter(mode){
   const f=$("#ftr");
   if(mode==="flow"){f.innerHTML="";f.hidden=true;return}
   f.hidden=false;
   if(mode==="app"){f.innerHTML=`<div class="wrap">${legend()}</div>`;return}
   f.innerHTML=`<div class="wrap"><div class="cols"><div>${legend()}</div>
-   <div><h3>Product</h3><ul><li><a href="/signup">Get started</a></li><li><a href="/login">Log in</a></li><li><a href="/" data-act="sample">Explore a sample lease</a></li><li><a href="/proof">See the measured proof</a></li></ul></div>
+   <div><h3>Product</h3><ul><li><a href="/signup">Get started</a></li><li><a href="/login">Log in</a></li><li><a href="/" data-act="sample">Explore a sample lease</a></li><li><a href="/proof">See the recorded proof</a></li></ul></div>
    <div><h3>Read</h3><ul><li><a href="/#why" data-scroll="why">Why it exists</a></li><li><a href="/#limits" data-scroll="limits">What it cannot promise</a></li><li><a href="/#sources" data-scroll="sources">Sources</a></li></ul></div></div></div>`;
 }
 
@@ -1255,7 +1267,7 @@ function heroTick(){
       return 4200;
     }
     const k={id:HD.items.length+1,tool,c,st:"accrued"}; HD.items.push(k); cue.dropId=k.id;
-    HD.note=trow(`<span>Agent paid <span class="num">${fmt(c)}</span> for ${tool}.</span> <span class="num">${fmt(F-c)}</span> <span>free</span>`,tagHtml("fixture"));
+    HD.note=trow(`<span>Agent committed <span class="num">${fmt(c)}</span> for ${tool}.</span> <span class="num">${fmt(F-c)}</span> <span>free</span>`,tagHtml("fixture"));
   }
   HD.i++; heroPaint(cue);
   return 1250;
@@ -1315,7 +1327,7 @@ const HOW=[
  ["Spend","Your agent pays for tools through the gateway. Each call ties a pendant to the cord. A call that would pass the cap is refused before PayPal is ever asked.",()=>cordSVG({items:[{id:1,c:120,st:"accrued"},{id:2,c:75,st:"accrued"},{id:3,c:250,st:"accrued"},{id:4,c:300,st:"accrued"},{id:5,c:475,st:"accrued"}],cap:2000,C:0,A:1220,F:780,vertical:isVertical(),tickFs:24,label:"Five paid calls tied on the cord."}),"Outlined knots are owed, not yet captured. Illustration, fixture amounts."],
  ["Settle","Calls pile up as owed. We capture them in fewer, larger steps, because every capture costs about $0.49 plus 3.49%. Twelve $1 captures cost $6.24 in fees. One $12 capture is about $0.91.",()=>cordSVG({items:[{id:1,c:120,st:"captured"},{id:2,c:75,st:"captured"},{id:3,c:250,st:"captured"},{id:4,c:300,st:"captured"},{id:5,c:475,st:"captured"}],cap:2000,C:1220,A:0,F:780,vertical:isVertical(),tickFs:24,label:"The same calls, now captured."}),"Solid knots are captured. Fee figures are measured, then computed."],
  ["Judge","For escrowed jobs, two AI judges propose a verdict from a fixed list and a score. The database turns that into an amount with the rubric you set before the job. No model writes a number.",()=>plySVG(1,150),"Agreeing judges twist into one cord. A split stays apart and the money stays held."],
- ["Void","Void any time. You type the held amount first, then the free length is cut away and the hold goes back to your PayPal. Settle first if you want owed calls paid, because PayPal refused captures after a void.",()=>cordSVG({items:[{id:1,c:120,st:"captured"},{id:2,c:75,st:"captured"},{id:3,c:250,st:"captured"},{id:4,c:300,st:"captured"}],cap:2000,C:745,A:0,F:0,vertical:false,voided:true,relA:0,relF:1255,animCut:false,label:"A cord cut after four captured calls."}),"The faded dashes are the length that was released."]
+ ["Void","Void any time. You type the held amount first, then the free length is cut away and the hold goes back to your PayPal. In the sample lease, settle owed calls before you void.",()=>cordSVG({items:[{id:1,c:120,st:"captured"},{id:2,c:75,st:"captured"},{id:3,c:250,st:"captured"},{id:4,c:300,st:"captured"}],cap:2000,C:745,A:0,F:0,vertical:false,voided:true,relA:0,relF:1255,animCut:false,label:"A cord cut after four captured calls."}),"The faded dashes are the length that was released."]
 ];
 function howPaint(i){
   const [name,txt,vis,cap]=HOW[i];
@@ -1328,13 +1340,15 @@ function howPaint(i){
   }
   document.querySelectorAll("#tabs button").forEach((b,j)=>{b.setAttribute("aria-selected",String(j===i));b.tabIndex=j===i?0:-1});
 }
+const faqTestTag=datedTag("computed","2026-11-11","· stubbed provider tests");
 const FAQ=[
- ["Does my agent ever see my card?","No. Your agent gets a gateway token. The card stays with PayPal, and you approve the hold on PayPal's own page. Voiding the lease is designed to cut a token off. In this prototype that path is a fixture."],
- ["What if my agent tries to overspend?","The gateway checks every call against your cap and your per-call ceiling before anything is charged. A limit written into a prompt is text a model can misread or be argued out of. This one is a check in the payment path."],
- ["What happens after 72 hours?","PayPal documents a three day honor period for a hold. After that it is best effort, and PayPal's own error text says a reauthorize is allowed once, from day 4 to day 29. We do not promise more than that. Day 4 behavior is not tested yet."],
+ ["Does my agent ever see my card?","No. Your agent gets a gateway token. The card stays with PayPal, and you approve the hold on PayPal's own page."],
+ ["What if my agent tries to overspend?",`Both Run the agent and Preview cap decision refuse a price above the remaining cap. Run checks before committing the price or calling the provider. Preview only evaluates the price. ${faqTestTag}`],
+ ["What happens when I void a lease?",`The kernel refuses all further paid calls on a voided lease without any new charge. The token still authenticates, but the kernel returns window_ended because no live authorization remains. ${faqTestTag}`],
+ ["What happens after the honor period?","After the honor period, capture is best effort. Day-four reauthorization and capture behavior are unproven."],
  ["Why not just give my agent a virtual card?","Agent cards with limits are real and useful. Pashadhara is for people who want the hold on their own PayPal account, with capture batching, escrow for judged work and a one step void in one ledger."],
- ["What if PayPal does not answer?","The state becomes unknown. We read PayPal before any retry, so a slow call should never turn into a double charge. That is the design, and it is not proven end to end yet."],
- ["Is this live?","No. This is a sandbox prototype. No real money moves, and every number on a screen says whether it was measured, computed or is a fixture."]
+ ["What if PayPal does not answer?","PayPal timeout handling is unproven end to end."],
+ ["Is this live?","The showcase can run real agent calls against a PayPal sandbox lease while demo capacity is available. When no showcase lease is configured, the showcase shows a dated recording. The sample lease uses fixture data. All PayPal activity uses sandbox funds.",`Run the agent uses the gateway path that checks and commits the call price. ${faqTestTag}`]
 ];
 V.home=()=>`
 <section class="hero"><div class="wrap">
@@ -1355,9 +1369,9 @@ V.home=()=>`
   <div class="receipt">
     <div class="rrow"><span class="what">Fees on twelve $1.00 captures of one authorization</span><span class="val">$6.24</span><span class="tags">${tagHtml("measured")}</span></div>
     <div class="rrow"><span class="what">Fee on one $12.00 capture, from the same fee model</span><span class="val">$0.91</span><span class="tags">${tagHtml("computed")}</span></div>
-    <div class="rrow"><span class="what">What PayPal answered when we tried to capture after a void</span><span class="val">422</span><span class="tags">${tagHtml("measured")}</span></div>
+    <div class="rrow"><span class="what">Sandbox authorization used for the fee experiment</span><span class="val">${fmt(proofEvidence.fees.cap)}</span><span class="tags">${tagHtml("measured")}</span></div>
   </div>
-  <a class="rawlink" href="/proof">Read the twelve raw rows</a>
+  <a class="rawlink" href="/proof">See the recorded capture evidence</a>
 </div></section>
 
 <section class="trust" id="trust"><div class="wrap">
@@ -1386,25 +1400,25 @@ V.home=()=>`
   <p class="lede">PayPal has no agent wallet. We build on an authorization hold, and a hold has limits we would rather you read here than discover later.</p>
   <div class="cols">
     <div><h3>The database enforces</h3><ul>
-      <li><span>Your cap and your per-call ceiling, checked on every call.</span></li>
+      <li><span>The remaining lease cap, checked before a tool call is charged.</span></li>
       <li><span>Every amount. Money is whole cents and no model chooses one.</span></li>
       <li><span>Escrow payouts, from the rubric you set before the job.</span></li>
       <li><span>A void you confirm by typing the held amount.</span></li></ul></div>
     <div><h3>PayPal decides</h3><ul>
       <li><span>A hold is honored for about 72 hours, then it is best effort.</span><span class="tags">${tagHtml("documented","from PayPal docs")}</span></li>
-      <li><span>Reauthorize is allowed once, from day 4 to day 29.</span><span class="tags">${tagHtml("measured","wording of a 422 response")}</span></li>
-      <li><span>PayPal's default overage limit is 115% of an order, so the 100% line is our own cap, not PayPal's.</span></li>
+      <li><span>Day-four reauthorization is unproven.</span></li>
+      <li><span>The gateway enforces its own cap. The PayPal overage boundary is unproven.</span></li>
       <li><span>A $1.00 sandbox payout reached SUCCESS 24 seconds after it was created.</span><span class="tags">${tagHtml("measured")}</span></li>
       <li><span>An authorization carries an expiry time 29 days after it was created.</span><span class="tags">${tagHtml("measured")}</span></li>
-      <li><span>Not proven yet: reauthorize on day 4 and capture after day 3.</span></li>
-      <li><span>If PayPal does not answer, the state is unknown until we read it.</span></li></ul></div>
+      <li><span>Capture after the honor period is unproven.</span></li>
+      <li><span>PayPal timeout handling is unproven end to end.</span></li></ul></div>
   </div>
   <p class="builtfor">Built for builders shipping an agent that pays, teams that need a stop button, sellers who deliver work, and anyone watching the fee line.</p>
 </div></section>
 
 <section class="sect" id="faq" style="padding-top:var(--s8)"><div class="wrap">
   <h2 class="big2">Questions worth asking first.</h2>
-  <div class="faq">${FAQ.map(([q,a])=>`<details><summary>${q}</summary><p>${a}</p></details>`).join("")}</div>
+  <div class="faq">${FAQ.map(([q,a,test])=>`<details><summary>${q}</summary><p>${a}</p>${test?`<p>${test}</p>`:""}</details>`).join("")}</div>
 </div></section>
 
 <section class="close"><div class="wrap">
@@ -1708,9 +1722,6 @@ function mount(){
         $("#cord").querySelectorAll(".pendants .pen").forEach(pen=>{if(captured.includes(+pen.dataset.id))previousKnots(pen)});
         delete S.ui.settleDone.ids;
       }
-    }
-    if(v==="proof"&&(!S.user||S.user.showcase)){
-      loadShowcase().then(data=>{if(current==="proof"&&(!S.user||S.user.showcase))main.innerHTML=showcaseProof(data)+V.proof();}).catch(()=>{});
     }
     if(v==="escrow")paintEscrow();
     if(v==="settle")paintSettle();

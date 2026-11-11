@@ -154,6 +154,23 @@ tfoot td{font-weight:600}
 tr.sel td{background:var(--lint)}
 @media (hover:hover) and (pointer:fine){tbody tr:hover td{background:var(--lint)}}
 .wide{overflow-x:auto}
+.proof-section{margin-top:var(--s6)}
+.proof-section > .trow{flex-wrap:wrap}
+.proof-section .money{white-space:nowrap}
+.tag-date{white-space:nowrap}
+.proof-log-path{overflow-wrap:anywhere}
+.proof-section > p{margin-top:var(--s2)}
+.proof-caption{text-align:left;padding:var(--s2) 0}
+.proof-cord{margin-top:var(--s4)}
+.proof-balance,.proof-after-void,.reconcile-rt{margin:var(--s3) 0}
+.reconcile-rt{width:100%}
+.reconcile-rt th[scope="row"]{overflow-wrap:anywhere}
+.proof-escrow small{display:block;margin-top:var(--s1)}
+.proof-escrow small{font-size:.875rem}
+.proof-escrow dl{background:var(--lint);padding:var(--s4);margin-top:var(--s3)}
+.proof-escrow dl > div{display:grid;grid-template-columns:minmax(6rem,1fr) 2fr;gap:var(--s2);padding:var(--s2) 0}
+.proof-escrow dt{font-weight:600}
+.proof-escrow dd{margin:0}
 .log{list-style:none;margin:var(--s4) 0 0;padding:0;display:grid;gap:var(--s2);font-size:.9375rem}
 .log li{display:flex;gap:var(--s3)}
 .log time{font-family:var(--font-data);color:var(--umber)}
@@ -249,6 +266,11 @@ footer p{max-width:44rem}
   .band{margin-top:var(--s7);padding-block:var(--s6) var(--s7)}
 }
 @media (max-width:720px){
+  .proof-cord{max-width:420px}
+  .proof-caption{display:block}
+  .reconcile-rt tr{grid-template-columns:minmax(0,1fr) auto}
+  .reconcile-rt th[scope="row"]{padding:var(--s1) 0}
+  .reconcile-rt td:last-child{grid-column:1 / -1}
   .cordwrap{max-width:420px}
   .bundle{flex-direction:column}
   .whip{flex:0 0 10px;width:34px;height:10px;margin-top:0;margin-left:0}
@@ -633,18 +655,20 @@ body[data-theme="dark"]{--danger:#E58AA0}
   .ledgerrt tr{grid-template-columns:minmax(0,1fr) auto}
   .ledgerrt td:nth-child(2),.ledgerrt td:nth-child(4){text-align:right}
   .ledgerrt tfoot td:nth-child(3){display:none}
-  .proofrt tr{grid-template-columns:2.2rem minmax(0,1fr) auto auto}
+  .proofrt tr{grid-template-columns:max-content minmax(0,1fr) auto}
   .proofrt tbody td:nth-child(1){grid-area:1/1}
-  .proofrt tbody td:nth-child(2){grid-area:1/2/2/4}
-  .proofrt tbody td:nth-child(3){grid-area:1/4;text-align:right}
-  .proofrt tbody td:nth-child(4){grid-area:2/2}
-  .proofrt tbody td:nth-child(5){grid-area:2/3}
+  .proofrt tbody td:nth-child(2){grid-area:1/2/2/-1}
+  .proofrt tbody td:nth-child(3){grid-area:2/3;text-align:right}
+  .proofrt tbody td:nth-child(4){grid-area:2/1}
+  .proofrt tbody td:nth-child(5){grid-area:2/2}
   .proofrt tbody td:nth-child(5)::before,.proofrt tfoot td:nth-child(3)::before{content:"fee ";color:var(--umber)}
-  .proofrt tbody td:nth-child(6){grid-area:2/4;text-align:right}
+  .proofrt tbody td:nth-child(6){grid-area:3/1/4/3}
+  .proofrt tbody td:nth-child(7){grid-area:3/3}
+  .proofrt tbody td{padding-block:2px}
   .proofrt tfoot td:nth-child(1){grid-column:1 / -1;font-weight:600}
-  .proofrt tfoot td:nth-child(2){grid-area:2/2}
-  .proofrt tfoot td:nth-child(3){grid-area:2/3}
-  .proofrt tfoot td:nth-child(4){grid-area:2/4;text-align:right}
+  .proofrt tfoot td:nth-child(2){grid-area:2/1}
+  .proofrt tfoot td:nth-child(3){grid-area:2/2}
+  .proofrt tfoot td:nth-child(4){grid-area:2/3}
   .proofrt td.r{text-align:left}
   .proofrt tbody td:nth-child(4),.proofrt tbody td:nth-child(5){text-align:left}
 }

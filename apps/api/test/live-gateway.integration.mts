@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { after, test } from 'node:test';
 import * as kernel from '../../../packages/kernel/src/index.ts';
-import { createMcp, registeredTools } from '../src/mcp.ts';
+import { balances } from '../../../packages/kernel/src/journal.ts';
+import { createMcp,registeredTools } from '../src/mcp.ts';
 import { kernelMeter } from '../src/meter.ts';
 import { summariseTool } from '../src/summarise.ts';
 import { showcaseRoutes } from '../src/showcase.ts';
@@ -34,7 +35,7 @@ function gateway(lease: string, providerKey: string | null = 'fixture-not-a-key'
   let providerCalls = 0;
   const tool = summariseTool({
     apiKey: providerKey ?? undefined, limitUsd: 2, log: () => {},
-    fetcher: async () => { providerCalls++; return Response.json({ content: [{ type: 'text', text: 'A short summary.' }], usage: { input_tokens: 20, output_tokens: 6 } }); },
+    fetcher: async () => { providerCalls++; return Response.json({ content: [{ type: 'text', text: 'A short summary.' }], stop_reason: 'end_turn', usage: { input_tokens: 20, output_tokens: 6 } }); },
   });
   const app = createMcp(kernelMeter(db), async () => lease, registeredTools(db, ['summarise']), [tool]);
   const call = async (text: string, idempotency = key(text)) => {
@@ -121,15 +122,38 @@ test('no model key: unavailable, nothing charged', async () => {
   assert.equal((await rows(lease)).length, 0);
 });
 
-test('a provider failure after the charge says so and the key cannot be replayed for free', async () => {
+const balance = (lease: string) => db.transaction(null, tx => balances(tx, lease)).then(b => b.hold);
+const ledgerRows = (lease: string) => db.transaction(null, tx => tx.query<{ n: number }>(
+  'select count(*)::int as n from public.ledger_entries where lease_id=$1', [lease])).then(r => r.rows[0]!.n);
+
+test('a provider failure after admission leaves no charge and no served row', async () => {
   const lease = await activeLease(5n);
   const tool = summariseTool({ apiKey: 'fixture', limitUsd: 2, log: () => {}, fetcher: async () => new Response('no', { status: 500 }) });
   const app = createMcp(kernelMeter(db), async () => lease, registeredTools(db, ['summarise']), [tool]);
   const idempotency = key('x');
   const send = async () => (await (await app.request('http://localhost/mcp', { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'summarise', arguments: { text: 'x', idempotency_key: idempotency } } }) })).json() as any).result;
+  const before = { hold: await balance(lease), ledger: await ledgerRows(lease) };
   const first = await send();
-  assert.deepEqual(first.structuredContent, { ok: false, error: 'tool_failed', charged: true });
-  assert.equal((await send()).structuredContent.error, 'idempotency_conflict');
+  assert.deepEqual(first.structuredContent, { ok: false, error: 'tool_failed', charged: false });
+  assert.deepEqual(await rows(lease), [], 'no tool_calls row, so nothing is marked served');
+  assert.equal(await balance(lease), before.hold);
+  assert.equal(await ledgerRows(lease), before.ledger);
+});
+
+test('showcase run: a model failure after admission returns 502, charges nothing, marks nothing served', async () => {
+  const lease = await activeLease(1000n);
+  const tool = summariseTool({ apiKey: 'fixture', limitUsd: 2, log: () => {}, fetcher: async () => { throw new Error('upstream down'); } });
+  const app = showcaseRoutes(db, lease, 'fixture-secret', tool, 100);
+  const before = { hold: await balance(lease), ledger: await ledgerRows(lease) };
+  const response = await app.request('http://localhost/showcase/run', { method: 'POST', headers: { 'content-type': 'application/json' } });
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { error: 'tool_failed', charged: false });
+  assert.deepEqual(await rows(lease), []);
+  assert.equal(await balance(lease), before.hold);
+  assert.equal(await ledgerRows(lease), before.ledger);
+  const proof = await (await app.request('http://localhost/showcase')).json() as { remaining_calls: number; calls: unknown[] };
+  assert.equal(proof.calls.length, 0);
+  assert.equal(proof.remaining_calls, 2, 'a failed run must not use up the visitor allowance');
 });
 
 test('exhausted AI budget refuses before the kernel charges', async () => {

@@ -5,7 +5,7 @@ import type { Database, Tx } from '../../../packages/kernel/src/db.ts';
 import { balances } from '../../../packages/kernel/src/journal.ts';
 import { commitUsageInTransaction, previewUsage } from '../../../packages/kernel/src/usage.ts';
 import { isUuid } from './auth.ts';
-import { meterReasons } from './meter.ts';
+import { Busy, ToolFailure, WindowClosed, lockedTransaction, meterReasons, runBeforeDeadline, windowStillOpen, type Deadlines } from './meter.ts';
 import type { ToolDef } from './mcp.ts';
 import { readHandlers } from './read-handlers.ts';
 
@@ -14,7 +14,7 @@ const PER_IP = 2;
 const PREFIX = 'showcase:';
 const TEXT = 'A PayPal sandbox authorization backs an AI agent spending limit. The gateway charges for tools and refuses calls above the remaining budget.';
 
-export function showcaseRoutes(db: Database, lease: string, secret: string, tool: ToolDef, lifetime: number) {
+export function showcaseRoutes(db: Database, lease: string, secret: string, tool: ToolDef, lifetime: number, deadlines?: Deadlines) {
   const app = new Hono();
   const reads = readHandlers(db);
   const headers = { 'Cache-Control': 'no-store' };
@@ -49,25 +49,46 @@ export function showcaseRoutes(db: Database, lease: string, secret: string, tool
     return c.json({ provenance: 'computed', mode: 'live', lease: result.body, journal: journal.body, ...proof }, 200, headers);
   });
   app.post('/showcase/run', async c => {
+    const entered = Date.now();
     if (c.req.header('content-type') !== 'application/json') return c.json({ error: 'Expected application/json' }, 415);
     const prefix = ipPrefix(c.req.raw);
     if (!prefix || !isUuid(lease)) return c.json({ error: 'showcase_unavailable' }, 503);
     const admission = tool.admit(TEXT);
     if (!admission) return c.json({ error: 'agent_unavailable' }, 503);
     try {
-      const payment = await db.transaction(lease, async tx => {
-        await tx.query('select pg_advisory_xact_lock(234171,4)');
-        const available = await remaining(tx, prefix);
-        if (!available) return { status: 429 as const, body: { error: 'demo_limit', remaining_calls: 0 } };
-        const call = await commitUsageInTransaction(tx, lease, { kind: 'tool', tool_id: tool.name, idempotency_key: prefix + randomUUID() });
-        const { hold } = await balances(tx, lease);
-        const amounts = { price_minor: Number(call.amount_minor), remaining_minor: Number(hold), provenance: 'computed' };
-        if (call.status !== 'served') return { status: 402 as const, body: { ...amounts, reason: meterReasons[call.status] } };
-        return { status: 200 as const, body: { ...amounts, remaining_calls: available - 1 } };
-      });
-      if (payment.status !== 200) return c.json(payment.body, payment.status);
-      try { return c.json({ ...payment.body, result: await admission.run(TEXT) }); }
-      catch { return c.json({ ...payment.body, error: 'tool_failed', charged: true }, 502); }
+      // The model runs inside the charging transaction, under the same bounded lock wait and overall deadline as an MCP call.
+      // If it fails, or the honor window closed meanwhile, the commit and the served row roll back together and the
+      // visitor allowance is not used up.
+      let output: Promise<Record<string, unknown>> | undefined;
+      let price = 0n;
+      try {
+        const payment = await lockedTransaction(db, lease, { ...deadlines, entered }, async (tx, signal, endWait, arm) => {
+          await arm(); // what is left of the one budget, not a fresh wait
+          await tx.query('select pg_advisory_xact_lock(234171,4)');
+          const available = await remaining(tx, prefix);
+          if (!available) return { status: 429 as const, body: { error: 'demo_limit', remaining_calls: 0 } };
+          const call = await commitUsageInTransaction(tx, lease, { kind: 'tool', tool_id: tool.name, idempotency_key: prefix + randomUUID() });
+          price = call.amount_minor;
+          const { hold } = await balances(tx, lease);
+          const amounts = { price_minor: Number(call.amount_minor), remaining_minor: Number(hold), provenance: 'computed' };
+          if (call.status !== 'served') return { status: 402 as const, body: { ...amounts, reason: meterReasons[call.status] } };
+          await endWait();
+          output ??= runBeforeDeadline(signal2 => admission.run(TEXT, signal2), signal); // a serialization retry must not call the model twice
+          await output;
+          if (!await windowStillOpen(tx, lease)) throw new WindowClosed();
+          return { status: 200 as const, body: { ...amounts, remaining_calls: available - 1 } };
+        });
+        if (payment.status !== 200) return c.json(payment.body, payment.status);
+        return c.json({ ...payment.body, result: await output });
+      } catch (error) {
+        if (error instanceof Busy) return c.json({ error: 'busy', charged: false }, 503);
+        if (error instanceof ToolFailure) return c.json({ error: 'tool_failed', charged: false }, 502);
+        if (error instanceof WindowClosed) {
+          const { hold } = await db.transaction(null, tx => balances(tx, lease));
+          return c.json({ price_minor: Number(price), remaining_minor: Number(hold), provenance: 'computed', reason: meterReasons.refused_window }, 402);
+        }
+        throw error;
+      }
     } finally {
       admission.cancel();
     }

@@ -46,7 +46,7 @@ for (const [n, spec] of specs.entries()) {
     }
     await page.goto(`${origin}/proof`);
     await page.waitForSelector("tbody tr");
-    assert.equal(await page.locator("tbody tr").count(), 12, "proof rows");
+    assert.equal(await page.locator(".proofrt tbody tr").count(), 12, "proof fee rows");
     assert.deepEqual(errors, []);
     console.log(`ok run ${n + 1}: free ${usd(lease.balances.hold_available)}, ${commits.length} call row(s), reload kept live, /proof opens`);
   } catch (error) {

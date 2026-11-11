@@ -1,0 +1,165 @@
+{
+  "fees": {
+    "date": "2026-11-06",
+    "cap": 2000,
+    "rows": [
+      {
+        "id": "8KK17784DB464635E",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:20"
+      },
+      {
+        "id": "3F738302AV910594B",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:23"
+      },
+      {
+        "id": "11H34634K9873640M",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:26"
+      },
+      {
+        "id": "7X372453FD414441H",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:29"
+      },
+      {
+        "id": "9W4967933R4765939",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:31"
+      },
+      {
+        "id": "1NL47230D4507635W",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:34"
+      },
+      {
+        "id": "1EN26299VG4180452",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:36"
+      },
+      {
+        "id": "2KU9406534856942A",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:39"
+      },
+      {
+        "id": "5XD45021CD582593A",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:42"
+      },
+      {
+        "id": "2WY25534LV958454K",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:45"
+      },
+      {
+        "id": "19317627JP720332M",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:48"
+      },
+      {
+        "id": "84F24590SX6367626",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "time": "16:17:51"
+      }
+    ],
+    "total": 1200,
+    "feeTotal": 624,
+    "remaining": 800,
+    "singleCaptureEstimate": 91
+  },
+  "reconciliation": {
+    "rows": [
+      {
+        "id": "8SY942032X439374T",
+        "status": "COMPLETED",
+        "amount": 100,
+        "fee": 52,
+        "state": "matched",
+        "date": "2026-11-09"
+      },
+      {
+        "id": "99E34876KH827581M",
+        "status": "COMPLETED",
+        "amount": 500,
+        "fee": 66,
+        "state": "matched",
+        "date": "2026-11-09"
+      },
+      {
+        "id": "1YB13828N1626072K",
+        "status": "COMPLETED",
+        "amount": 300,
+        "fee": 59,
+        "state": "post",
+        "date": "2026-11-09"
+      }
+    ],
+    "authorization": {
+      "logDate": "2026-11-06",
+      "readAt": "2026-11-08 12:20Z",
+      "status": "CREATED"
+    }
+  },
+  "escrow": {
+    "date": "2026-11-09",
+    "verdicts": [
+      {
+        "provider": "OpenAI",
+        "verdict": "pass",
+        "score": 100
+      },
+      {
+        "provider": "Anthropic",
+        "verdict": "pass",
+        "score": 100
+      }
+    ],
+    "decision": {
+      "status": "release",
+      "amount": 300
+    },
+    "capture": {
+      "id": "1YB13828N1626072K",
+      "status": "COMPLETED",
+      "amount": 300,
+      "fee": 59,
+      "state": "post",
+      "date": "2026-11-09"
+    },
+    "payout": {
+      "status": "SUCCESS",
+      "amount": 241,
+      "date": "2026-11-09"
+    }
+  },
+  "limits": {
+    "overage": "115%",
+    "date": "2026-11-06"
+  }
+}

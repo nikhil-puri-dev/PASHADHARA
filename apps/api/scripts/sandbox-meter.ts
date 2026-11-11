@@ -22,10 +22,10 @@ export async function sandboxSeller(db: Database, email: string) {
 
 export function scriptMeter(db: Database, lease: string) {
   const token = randomUUID();
-  const meter: Meter = async (id, tool, key) => {
+  const meter: Meter = async (id, tool, key, work) => {
     if (id !== lease || tool !== 'text_stats') return { ok: false, error: 'tool_unavailable' };
     const result = await commitUsage(db, id, { kind: 'tool', tool_id: tool, idempotency_key: key });
-    if (result.status === 'served') return { ok: true };
+    if (result.status === 'served') return { ok: true, result: await work(new AbortController().signal) };
     const reasons = { refused_cap: 'cap_reached', refused_exposure: 'exposure_limit', refused_window: 'window_ended', refused_inactive: 'lease_not_active' };
     const { hold } = await db.transaction(null, tx => balances(tx, id));
     return { ok: false, reason: reasons[result.status], price_minor: Number(result.amount_minor), remaining_minor: Number(hold), lease_id: id };

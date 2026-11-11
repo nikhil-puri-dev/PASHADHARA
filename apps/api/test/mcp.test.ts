@@ -14,7 +14,7 @@ async function rpc(app: ReturnType<typeof createMcp>, method: string, params: un
 
 test('MCP lists two real tools without charging', async () => {
   let count = 0;
-  const meter: Meter = async () => { count++; return { ok: true }; };
+  const meter: Meter = async (_l, _t, _k, work) => { count++; return { ok: true, result: await work(new AbortController().signal) }; };
   const message = await rpc(createMcp(meter, async () => null, available), 'tools/list');
   assert.deepEqual(message.result.tools.map((x: any) => x.name), ['text_stats', 'sha256_digest']);
   assert.equal(count, 0);
@@ -22,7 +22,7 @@ test('MCP lists two real tools without charging', async () => {
 
 test('MCP commits before computing a deterministic tool result', async () => {
   const calls: string[] = [];
-  const app = createMcp(async (_lease, tool, key) => { calls.push(`${tool}:${key}`); return { ok: true }; }, async () => 'fixture-lease', available);
+  const app = createMcp(async (_lease, tool, key, work) => { calls.push(`${tool}:${key}`); return { ok: true, result: await work(new AbortController().signal) }; }, async () => 'fixture-lease', available);
   const args = { text: 'hello world', idempotency_key: key('text_stats', 'hello world') };
   const first = await rpc(app, 'tools/call', { name: 'text_stats', arguments: args });
   const second = await rpc(app, 'tools/call', { name: 'text_stats', arguments: args });
@@ -43,7 +43,7 @@ test('MCP refusal returns a structured payment error and no result', async () =>
 
 test('MCP refuses an unauthenticated tool call before metering', async () => {
   let called = false;
-  const app = createMcp(async () => { called = true; return { ok: true }; }, async () => null, async () => {
+  const app = createMcp(async (_l, _t, _k, work) => { called = true; return { ok: true, result: await work(new AbortController().signal) }; }, async () => null, async () => {
     throw new Error('Tool registry must not be read on an unauthenticated call');
   });
   const message = await rpc(app, 'tools/call', { name: 'text_stats', arguments: { text: 'fixture', idempotency_key: key('text_stats', 'fixture') } });
@@ -52,13 +52,13 @@ test('MCP refuses an unauthenticated tool call before metering', async () => {
 
 test('MCP rejects a key bound to different input before metering', async () => {
   let called = false;
-  const app = createMcp(async () => { called = true; return { ok: true }; }, async () => 'fixture', available);
+  const app = createMcp(async (_l, _t, _k, work) => { called = true; return { ok: true, result: await work(new AbortController().signal) }; }, async () => 'fixture', available);
   const message = await rpc(app, 'tools/call', { name: 'text_stats', arguments: { text: 'changed', idempotency_key: key('text_stats', 'original') } });
   assert.equal(message.result.isError, true); assert.equal(called, false);
 });
 
 test('MCP lists only registered tools', async () => {
-  const app = createMcp(async () => ({ ok: true }), async () => null, async () => ['sha256_digest']);
+  const app = createMcp(async (_l, _t, _k, work) => ({ ok: true, result: await work(new AbortController().signal) }), async () => null, async () => ['sha256_digest']);
   const message = await rpc(app, 'tools/list');
   assert.deepEqual(message.result.tools.map((x: any) => x.name), ['sha256_digest']);
 });
@@ -68,4 +68,12 @@ test('production meter fails closed until nonce binding is atomic', async () => 
   const result = await rpc(app, 'tools/call', { name: 'text_stats', arguments: { text: 'fixture', idempotency_key: key('text_stats', 'fixture') } });
   assert.equal(result.result.isError, true);
   assert.equal(result.result.structuredContent.error, 'metering_unavailable');
+});
+
+test('a meter that returns ok without a result does not typecheck', () => {
+  // The type enforces only that an ok result carries `result`, and that `work` is a parameter. It cannot stop a fake from
+  // returning some result while ignoring `work`. The behaviour is covered by the integration tests, which run the real meter.
+  // @ts-expect-error an ok result must carry the tool result
+  const withoutResult: Meter = async () => ({ ok: true });
+  assert.equal(typeof withoutResult, 'function');
 });

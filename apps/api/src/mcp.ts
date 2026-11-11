@@ -5,12 +5,19 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import type { Database } from '../../../packages/kernel/src/db.ts';
+import { LOCK_WAIT_MS } from './meter.ts';
 
-type MeterResult = { ok: true } | { ok: false; reason: string; price_minor: number; remaining_minor: number; lease_id: string } | { ok: false; error: 'tool_unavailable' | 'idempotency_conflict' | 'metering_unavailable' };
-export type Meter = (lease: string, tool: string, key: string) => Promise<MeterResult>;
+type MeterResult = { ok: true; result: Record<string, unknown> } | { ok: false; reason: string; price_minor: number; remaining_minor: number; lease_id: string }
+  | { ok: false; error: 'tool_unavailable' | 'idempotency_conflict' | 'metering_unavailable' }
+  | { ok: false; error: 'tool_failed' | 'busy'; charged: false };
+/**
+ * `work` is required: the meter runs the tool inside the charge and hands back its result. If `work` throws, times
+ * out (the signal aborts at the call's overall deadline) or the honor window closed meanwhile, nothing is charged.
+ */
+export type Meter = (lease: string, tool: string, key: string, work: (signal: AbortSignal) => Promise<Record<string, unknown>>, entered?: number) => Promise<MeterResult>;
 
 /** A tool may only run after `admit` agreed it can (provider ready, spend left) and the meter charged. */
-export type Admission = { run(text: string): Promise<Record<string, unknown>>; cancel(): void };
+export type Admission = { run(text: string, signal?: AbortSignal): Promise<Record<string, unknown>>; cancel(): void };
 export type ToolDef = { name: string; description: string; admit(text: string): Admission | null };
 
 const toy = (name: string, description: string, compute: (text: string) => Record<string, unknown>): ToolDef => ({
@@ -33,10 +40,19 @@ export const unavailableKernelMeter: Meter = async () => ({ ok: false, error: 'm
 export function createMcp(
   meter: Meter, resolveLease: (request: Request) => Promise<string | null>,
   available: () => Promise<readonly string[]>, tools: readonly ToolDef[] = toyTools,
+  budget: { lockWaitMs?: number } = {},
 ) {
   const app = new Hono();
   app.all('/mcp', async c => {
-    const lease = await resolveLease(c.req.raw);
+    // One budget from request entry: authentication (which uses a pool slot) counts against the same lock wait as the meter.
+    const entered = Date.now();
+    let waitTimer: ReturnType<typeof setTimeout> | undefined;
+    const busy = Symbol('busy');
+    const resolving = resolveLease(c.req.raw);
+    resolving.catch(() => {});
+    const lease = await Promise.race([
+      resolving, new Promise<typeof busy>(resolve => { waitTimer = setTimeout(() => resolve(busy), budget.lockWaitMs ?? LOCK_WAIT_MS); }),
+    ]).finally(() => clearTimeout(waitTimer));
     const server = new McpServer({ name: 'pashadhara', version: '0.1.0' });
     for (const tool of tools) {
       server.registerTool(tool.name, {
@@ -46,6 +62,10 @@ export function createMcp(
           idempotency_key: z.string().regex(/^[0-9a-f-]{36}:[0-9a-f]{64}$/).describe('A new UUID, colon, and SHA-256 of tool name, NUL, then UTF-8 text. Reuse only to retry the same invocation.'),
         },
       }, async ({ text, idempotency_key }) => {
+        if (lease === busy) {
+          const refusal = { ok: false, error: 'busy', charged: false };
+          return { isError: true, structuredContent: refusal, content: [{ type: 'text', text: JSON.stringify(refusal) }] };
+        }
         if (!lease) return { isError: true, content: [{ type: 'text', text: 'A valid lease token is required.' }] };
         const digest = createHash('sha256').update(tool.name).update('\0').update(text).digest('hex');
         if (!idempotency_key.endsWith(`:${digest}`)) return { isError: true, content: [{ type: 'text', text: 'Idempotency key does not match the tool and input.' }] };
@@ -56,20 +76,13 @@ export function createMcp(
           return { isError: true, structuredContent: refusal, content: [{ type: 'text', text: JSON.stringify(refusal) }] };
         }
         let payment: Awaited<ReturnType<Meter>>;
-        try { payment = await meter(lease, tool.name, idempotency_key); }
+        try { payment = await meter(lease, tool.name, idempotency_key, signal => admission.run(text, signal), entered); }
         catch { payment = { ok: false, error: 'metering_unavailable' }; }
         if (!payment.ok) {
           admission.cancel();
           return { isError: true, structuredContent: payment, content: [{ type: 'text', text: JSON.stringify(payment) }] };
         }
-        try {
-          const result = await admission.run(text);
-          return { structuredContent: result, content: [{ type: 'text', text: JSON.stringify(result) }] };
-        } catch {
-          // The kernel already committed the price. Say so instead of hiding the charge.
-          const failure = { ok: false, error: 'tool_failed', charged: true };
-          return { isError: true, structuredContent: failure, content: [{ type: 'text', text: JSON.stringify(failure) }] };
-        }
+        return { structuredContent: payment.result, content: [{ type: 'text', text: JSON.stringify(payment.result) }] };
       });
     }
     server.server.setRequestHandler(ListToolsRequestSchema, async () => {

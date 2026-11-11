@@ -29,10 +29,10 @@ try {
   assert.equal(runResponse.status(), 200);
   const paid = await runResponse.json();
   assert.match(paid.result.model, /^claude-haiku/);
-  await page.locator('#showcase-result').filter({ hasText: 'Computed charge' }).waitFor();
+  await page.locator('#showcase-result').filter({ hasText: 'Computed amount committed' }).waitFor();
   await page.getByLabel('Price in cents').fill(String(paid.remaining_minor + 1));
   const attempt = page.waitForResponse(r => new URL(r.url()).pathname === '/api/showcase/try');
-  await page.getByRole('button', { name: 'Try to break it' }).click();
+  await page.getByRole('button', { name: 'Preview cap decision' }).click();
   assert.equal((await attempt).status(), 402);
   await page.locator('#showcase-result').filter({ hasText: 'Refused: cap_reached' }).waitFor();
   const balance = await page.locator('#showcase-budget').textContent();
@@ -41,8 +41,8 @@ try {
   assert.equal(await page.locator('#showcase-budget').textContent(), balance);
   await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
   await page.goto(web + '/proof');
-  await page.locator('#showcase-proof').getByRole('heading', { name: 'Journal' }).waitFor();
-  assert.match(await page.locator('#showcase-proof').textContent(), /"status": "served"/);
+  await page.locator('#sandbox-proof').getByRole('heading', { name: 'Capture reconciliation', exact: false }).waitFor();
+  assert.equal(await page.locator('.proofrt tbody tr').count(), 12);
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ measured: true, elapsed_ms: elapsed, run_http: 200, try_http: 402, refresh: true, proof_without_session: true }));
 } finally {

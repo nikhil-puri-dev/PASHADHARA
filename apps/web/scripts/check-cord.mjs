@@ -89,7 +89,7 @@ try {
     for (let i = 0; i < 4; i++) await page.locator("#one").click();
     const log = await page.locator(".log li").allTextContents();
     assert.ok(log.some(l => /Documents is not on your allowed list/.test(l)), "category rule enforced");
-    assert.ok(log.some(l => /Spent/.test(l)), "an allowed call went through"); ok("gateway enforces the rules chosen at sign up");
+    assert.ok(log.some(l => /Committed/.test(l)), "an allowed call committed its price"); ok("gateway enforces the rules chosen at sign up");
 
     await page.reload({ waitUntil: "networkidle" });
     await page.locator("#lead h1").waitFor(); assert.equal(new URL(page.url()).pathname, "/lease"); ok("a reload keeps the session");
@@ -113,7 +113,7 @@ try {
     await page.locator('button[data-j="b"][data-v="0"]').click();
     assert.equal(await page.locator(".payout").textContent(), "$2.50 held"); ok("escrow rule: agree pays, a split holds");
     await page.getByRole("link", { name: "Proof" }).click(); await page.waitForURL(/\/proof$/);
-    assert.equal(await page.locator("tbody tr").count(), 12); ok("proof shows the 12 measured captures");
+    assert.equal(await page.locator(".proofrt tbody tr").count(), 12); ok("proof shows the 12 measured fee captures");
     await page.getByRole("link", { name: "Lease", exact: true }).click();
     await page.getByRole("button", { name: "Void lease" }).click();
     const voidBtn = page.locator("#voidGo");
