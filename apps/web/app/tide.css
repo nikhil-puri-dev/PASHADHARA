@@ -39,6 +39,14 @@ nav a[aria-current="page"]{font-weight:600;background:var(--lint)}
 .h1d .h1-accent{color:var(--free)}
 .lede2{font-size:clamp(1.1rem,1.6vw,1.3rem);line-height:1.5;max-width:40rem;margin-top:var(--s5);color:var(--walnut)}
 .hero2 .ctas{display:flex;align-items:center;gap:var(--s5);flex-wrap:wrap;margin-top:var(--s5)}
+.flag-preview{display:grid;gap:14px;align-content:center;min-height:350px;padding:clamp(24px,3vw,42px);border-top:4px solid var(--walnut);background:#e3e8df;color:var(--walnut);text-decoration:none}
+.flag-preview .num{font:600 clamp(3rem,5vw,5.5rem)/1 var(--font-ui);letter-spacing:-.06em;color:var(--free)}
+.flag-preview>span:not(.eyebrow){font-size:1.1rem;line-height:1.45;max-width:23rem}
+.flag-preview em{font-style:normal;font-weight:700;text-decoration:underline;text-underline-offset:5px;margin-top:20px}
+.flag-preview:hover em{color:var(--free)}
+.home-live-desk .wrap{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:clamp(32px,6vw,90px);align-items:start}
+.home-live-desk .wrap>div:first-child p:not(.eyebrow){max-width:28rem;line-height:1.5;margin-top:18px}
+@media(max-width:850px){.home-live-desk .wrap{grid-template-columns:1fr}.flag-preview{min-height:290px}}
 .sk{display:inline-block;height:1rem;border-radius:4px;background:linear-gradient(90deg,rgba(231,236,230,.08),rgba(231,236,230,.2),rgba(231,236,230,.08));background-size:200% 100%;animation:sk 1.4s linear infinite}
 @keyframes sk{from{background-position:200% 0}to{background-position:-200% 0}}
 @media (prefers-reduced-motion:reduce){.sk{animation:none}}

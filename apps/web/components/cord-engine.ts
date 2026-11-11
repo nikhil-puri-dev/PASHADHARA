@@ -1200,7 +1200,7 @@ function renderChrome(mode,v){
     h.innerHTML=`<div class="bar wrap">${brand("/","Pashadhara, home")}
      <nav aria-label="Primary"><ul>
       <li><a href="/#how" data-scroll="how">How it works</a></li><li><a href="/#limits" data-scroll="limits">Limits</a></li><li><a href="/quickstart"${v==="quickstart"?' aria-current="page"':""}>Developers</a></li><li><a href="/escrow"${v==="escrow"?' aria-current="page"':""}>Escrow</a></li><li><a href="/proof"${v==="proof"?' aria-current="page"':""}>Proof</a></li></ul></nav>
-     <div class="acts"><a class="btn fill sm" href="/lease?showcase=1">Open the live demo</a></div></div>`;
+     <div class="acts"><a class="btn fill sm" href="/delegation">Explore $5,000 fixture</a></div></div>`;
   }else if(mode==="flow"){
     const {step,mode:flowMode}=S.su, login=flowMode==="login", total=login?2:6;
     const progress=$(".pcord",h), label=`Step ${step} of ${total}`;
@@ -1277,9 +1277,9 @@ V.home=()=>`
   <p class="eyebrow">Spending authority for AI agents, built on PayPal holds</p>
   <h1 class="h1d">Give your agent authority.<br><span class="h1-accent">Keep the boundary.</span></h1>
   <p class="lede2">Approve one PayPal sandbox hold. Your agent calls paid tools on its own. A deterministic kernel checks and reserves each price before execution, then commits it if the tool succeeds. The model cannot raise the limit.</p>
-  <div class="ctas"><a class="btn fill" href="/lease?showcase=1">Inspect the demo lease</a><a class="tert" href="/quickstart">Integrate an agent</a><a class="tert" href="/proof">See evidence</a></div>
+  <div class="ctas"><a class="btn fill" href="/delegation">Explore the $5,000 fixture</a><a class="tert" href="/lease?showcase=1">Inspect $2 sandbox pilot</a><a class="tert" href="/proof">See PayPal evidence</a></div>
   </div>
-  <div class="deskcol">${deskHtml("home")}</div>
+  <div class="deskcol"><a class="flag-preview" href="/delegation"><span class="eyebrow">Interactive business scenario · fixture</span><strong class="num">$2,235.00</strong><span>remaining of $5,000.00 after $2,765.00 in sample commitments</span><em>Test a request and inspect the journal ↗</em></a></div>
   <section class="holds" aria-labelledby="holds-h"><h2 class="holds-h" id="holds-h">How the limit holds</h2>
    <ol>
     <li><span>You approve one hold on PayPal. Nothing is charged yet.</span></li>
@@ -1290,6 +1290,7 @@ V.home=()=>`
    </ol></section>
   </div>
 </div></section>
+<section class="home-live-desk sect"><div class="wrap"><div><p class="eyebrow">Separate sandbox pilot</p><h2 class="big2">The small sandbox lease.</h2><p>The sandbox pilot uses a $2 hold and a 3-cent paid tool. It is a narrow integration proof, shown separately from the $5,000 fixture scenario.</p></div>${deskHtml("home")}</div></section>
 
 <section class="sect" id="how"><div class="wrap">
   <h2 class="big2">One hold. Five moves.</h2>
