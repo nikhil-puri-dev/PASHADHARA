@@ -2,10 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import * as k from '../src/index.ts';
-import { active, admin, commit, completed, db, ledger, seed, toolId, usd } from './fixtures.ts';
+import { active, admin, commit, completed, db, kernelTestUrl, ledger, seed, toolId, usd } from './fixtures.ts';
 
 const application = 'kernel-caller-race-fixture';
-const other = new k.Database(`postgres://kernel_login@127.0.0.1:15433/postgres?application_name=${application}`);
+const other = new k.Database(`${kernelTestUrl}?application_name=${application}`);
 beforeAll(seed);
 afterAll(async () => { await other.end(); await db.end(); await admin.end(); });
 

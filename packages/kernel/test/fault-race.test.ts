@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, expect, test } from 'vitest';
 import * as k from '../src/index.ts';
-import { active, admin, commit, completed, db, declined, ledger, seed, toolId, usd } from './fixtures.ts';
+import { active, admin, commit, completed, db, kernelTestUrl, declined, ledger, seed, toolId, usd } from './fixtures.ts';
 
-const other = new k.Database('postgres://kernel_login@127.0.0.1:15433/postgres');
+const other = new k.Database(kernelTestUrl);
 beforeAll(seed);
 afterAll(async () => { await other.end(); await db.end(); await admin.end(); });
 

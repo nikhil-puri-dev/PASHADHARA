@@ -47,13 +47,31 @@ export function beginPayout(db: Database, lease: string, payout: string, request
 }
 
 export function sendPayout(db: Database, lease: string, payout: string) {
+  return db.transaction(lease, async tx => sendPayoutInTransaction(
+    tx, lease, await one<Payout>(tx, 'select * from public.payouts where lease_id=$1 and id=$2', [lease, payout]),
+  ));
+}
+
+/** Create and claim a due payout intent in the same lease transaction. */
+export function claimDuePayout(db: Database, lease: string, payout: string) {
   return db.transaction(lease, async tx => {
-    const row = await one<Payout>(tx, 'select * from public.payouts where lease_id=$1 and id=$2', [lease, payout]);
-    if (row.state !== 'queued' || !row.call_id || !await sent(tx, lease, row.call_id)) return null;
-    await tx.query("update public.payouts set state='sent' where id=$1", [payout]);
-    const call = await loadCall(tx, lease, row.call_id);
-    return { receiver_email: row.receiver_email, amount_minor: BigInt(row.amount_minor), call_id: row.call_id, request_id: call.request_id };
+    const row = (await tx.query<Payout>(`select * from public.payouts where lease_id=$1 and id=$2
+      and state='queued' and held_at is null and release_at<=now()`, [lease, payout])).rows[0];
+    if (!row) return null;
+    if (!row.call_id) {
+      const call = await intent(tx, lease, 'payout', randomUUID(), BigInt(row.amount_minor));
+      await tx.query('update public.payouts set call_id=$2 where id=$1', [payout, call.call_id]);
+      row.call_id = call.call_id;
+    }
+    return sendPayoutInTransaction(tx, lease, row);
   });
+}
+
+async function sendPayoutInTransaction(tx: Tx, lease: string, row: Payout) {
+  if (row.state !== 'queued' || !row.call_id || !await sent(tx, lease, row.call_id)) return null;
+  await tx.query("update public.payouts set state='sent' where id=$1", [row.id]);
+  const call = await loadCall(tx, lease, row.call_id);
+  return { receiver_email: row.receiver_email, amount_minor: BigInt(row.amount_minor), call_id: row.call_id, request_id: call.request_id };
 }
 
 export async function finishPayout(tx: Tx, lease: string, call: Call, evidence: ReadEvidence) {
@@ -95,4 +113,12 @@ export async function finishPayout(tx: Tx, lease: string, call: Call, evidence: 
 
 export function completePayout(db: Database, lease: string, callId: string, evidence: ReadEvidence) {
   return db.transaction(lease, async tx => finishPayout(tx, lease, await loadCall(tx, lease, callId), evidence));
+}
+
+/** Several readers can reconcile a known batch, but only one posts its terminal result. */
+export function reconcileSentPayout(db: Database, lease: string, callId: string, evidence: ReadEvidence) {
+  return db.transaction(lease, async tx => {
+    const call = await loadCall(tx, lease, callId);
+    if (call.state === 'sent' || call.state === 'unknown') await finishPayout(tx, lease, call, evidence);
+  });
 }

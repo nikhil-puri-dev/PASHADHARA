@@ -1,4 +1,5 @@
 // @ts-nocheck
+import recordedShowcase from "./showcase-recorded.json";
 /* Pashadhara cord engine. Ported from design/cord/index.html. It drives the whole interface
    imperatively into #hdr, #main and #ftr, exactly as the approved prototype does. */
 export function startCord(): () => void {
@@ -40,7 +41,12 @@ const S={
   ui:{sel:null,voidOpen:false,approve:"idle",settleN:null,settleBusy:false,settleDone:null,
       esc:{a:{v:2,s:88},b:{v:1,s:64}}}
 };
-const sums=()=>{let C=0,A=0;for(const k of S.calls){if(k.st==="captured")C+=k.c;else if(k.st==="accrued")A+=k.c}
+const sums=()=>{
+  if(S.user?.showcase&&S.showcase?.lease.balances){
+    const b=S.showcase.lease.balances;
+    return {C:b.total_captured,A:b.committed_unsettled,F:b.hold_available,held:b.hold_available+b.committed_unsettled};
+  }
+  let C=0,A=0;for(const k of S.calls){if(k.st==="captured")C+=k.c;else if(k.st==="accrued")A+=k.c}
   return {C,A,F:S.status==="voided"?0:CAP-C-A,held:S.status==="voided"?0:CAP-C}};
 const clockStr=m=>String(Math.floor(m/60)%24).padStart(2,"0")+":"+String(m%60).padStart(2,"0");
 const say=m=>{$("#live").textContent=m};
@@ -302,8 +308,91 @@ function slimSVG(o){
 ============================================================= */
 const ROUTES=[["lease","Lease"],["escrow","Escrow"],["settle","Settle"],["proof","Proof"]];
 const KEY="pashadhara-session";
-function save(){try{if(!S.user){sessionStorage.removeItem(KEY);return}sessionStorage.setItem(KEY,JSON.stringify({CAP,user:S.user,status:S.status,calls:S.calls,q:S.q,nextId:S.nextId,clock:S.clock,log:S.log,refused:S.refused,settles:S.settles,voided:S.voided,rules:S.rules}))}catch(e){}}
-function restore(){try{const j=JSON.parse(sessionStorage.getItem(KEY)||"null");if(!j||!j.user)return;CAP=j.CAP;S.user=j.user;S.status=j.status;S.calls=j.calls;S.q=j.q;S.nextId=j.nextId;S.clock=j.clock;S.log=j.log;S.refused=j.refused;S.settles=j.settles;S.voided=j.voided;S.rules=j.rules;}catch(e){}}
+/* Live mode: reads one lease from the API with its lease token. Entered with /lease#live=<lease id>.<token>.
+   The fragment never reaches a server and is stripped from the address bar at once. */
+const LIVE_KEY="pashadhara-live";
+const liveTag=()=>S.user&&S.user.live?tagHtml("computed",S.showcase?.mode==="recorded"?"recorded "+S.showcase.recorded_on:"live journal"):tagHtml("fixture");
+function liveTake(){
+  const m=/^#live=([0-9a-f-]{36})\.([\w.-]{20,600})$/i.exec(location.hash);
+  if(!m)return;
+  store.set(LIVE_KEY,JSON.stringify({id:m[1].toLowerCase(),token:m[2]}));
+  history.replaceState(null,"",location.pathname==="/"?"/lease":location.pathname);
+  stopRun(); S.user={name:"Live lease",live:true}; S.liveReady=false; S.liveSig=""; S.liveErr="";
+  S.status="active"; S.calls=[]; S.log=[]; S.refused=0; S.settles=[]; S.voided=null; S.ui.sel=null;
+}
+async function loadShowcase(){
+  const response=await fetch("/api/showcase",{cache:"no-store"});
+  if(!response.ok)throw new Error("HTTP "+response.status);
+  const data=await response.json();
+  return data.mode==="recorded"?recordedShowcase:data;
+}
+function enterShowcase(){
+  if(S.user?.showcase)return;
+  stopRun();
+  S.user={name:"Showcase lease",live:true,showcase:true};
+  S.liveReady=false; S.liveSig=""; S.liveErr=""; S.showcase=null; S.showcaseMessage="";
+  S.status="active"; S.calls=[]; S.log=[]; S.refused=0; S.settles=[]; S.voided=null; S.ui.sel=null;
+}
+async function liveLoad(){
+  let L=null; try{L=JSON.parse(store.get(LIVE_KEY)||"null")}catch(e){}
+  if(!L&&!S.user?.showcase)return false;
+  try{
+    let lease,entries;
+    const showcase=S.user?.showcase;
+    if(showcase){
+      const data=await loadShowcase();
+      if(!S.user?.showcase)return false;
+      S.showcase=data;
+      if(!S.showcaseMessage&&data.mode==="live"){try{S.showcaseMessage=sessionStorage.getItem("showcase-result:"+data.lease.id)||""}catch{}}
+      lease=data.lease; entries=data.journal.entries;
+    }else{
+      const init={headers:{Authorization:"Bearer "+L.token,Accept:"application/json"},cache:"no-store"};
+      const [a,b]=await Promise.all([fetch(`/api/v1/leases/${L.id}`,init),fetch(`/api/v1/leases/${L.id}/journal`,init)]);
+      if(!a.ok||!b.ok)throw new Error("HTTP "+(a.ok?b.status:a.status));
+      lease=await a.json(); ({entries}=await b.json());
+    }
+    const money=v=>Number.isSafeInteger(v)&&v>=0;
+    if(!lease||!money(lease.cap_minor)||!Array.isArray(entries)||(lease.authorizations&&!Array.isArray(lease.authorizations))||entries.some(e=>!e||!money(e.amount_minor)))throw new Error("unexpected response");
+    const when=iso=>new Date(iso).toISOString().slice(11,16)+" UTC";
+    const calls=[]; const log=[];
+    const auth=lease.authorizations&&lease.authorizations[0];
+    if(auth)log.push({t:when(entries.length?entries[0].created_at:auth.honor_until),m:`Authorization${auth.paypal_authorization_id?" "+auth.paypal_authorization_id:""} holds ${fmt(auth.amount_minor)} (read from the lease record).`});
+    for(const e of showcase?[]:entries){
+      if(e.ref_type!=="commit"||e.account!=="COMMITTED_UNSETTLED"||e.direction!=="D")continue;
+      const id=calls.length+1;
+      calls.push({id,tool:"paid call",c:e.amount_minor,st:"accrued",t:when(e.created_at)});
+      log.push({t:when(e.created_at),m:`Paid ${fmt(e.amount_minor)} for call ${id}.`});
+    }
+    if(showcase){
+      for(const row of S.showcase.calls){
+        const t=when(row.created_at), amount=Number(row.price_minor);
+        if(row.status==="served")calls.push({id:calls.length+1,tool:row.tool_id,c:amount,st:row.captured?"captured":"accrued",t});
+        log.push({t,m:row.status==="served"?`Paid ${fmt(amount)} for ${row.tool_id}.`:`Refused ${fmt(amount)}: ${row.status}.`});
+      }
+    }
+    if(lease.state!=="active")log.push({t:"",m:`Lease state is ${lease.state}.`});
+    const sig=JSON.stringify([lease.cap_minor,calls,lease.state,auth&&auth.honor_until,showcase&&S.showcase]);
+    S.liveErr="";
+    if(sig===S.liveSig)return true;
+    S.liveSig=sig; CAP=lease.cap_minor; S.calls=calls; S.log=log; S.nextId=calls.length+1;
+    S.liveHonor=auth?String(auth.honor_until).replace("T"," ").slice(0,16):"";
+    S.liveChanged=true;
+    return true;
+  }catch(e){S.liveErr="The live lease could not be read ("+(e&&e.message||"error")+"). Showing the last good read.";return false}
+}
+function liveStart(){
+  if(S.livePoll)return;
+  S.livePoll=setInterval(async()=>{
+    const ok=await liveLoad();
+    if(current!=="lease"||!S.user||!S.user.live)return;
+    if(S.liveChanged){S.liveChanged=false;paintLease({})}
+    else if(!ok)paintReadout();
+  },5000);
+}
+/* localStorage so a refresh, a new tab and a deep link keep the sample session. */
+const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}},del:k=>{try{localStorage.removeItem(k)}catch(e){}}};
+function save(){try{if(!S.user){store.del(KEY);return}store.set(KEY,JSON.stringify({CAP,user:S.user,status:S.status,calls:S.calls,q:S.q,nextId:S.nextId,clock:S.clock,log:S.log,refused:S.refused,settles:S.settles,voided:S.voided,rules:S.rules}))}catch(e){}}
+function restore(){try{const j=JSON.parse(store.get(KEY)||"null");if(!j||!j.user)return;CAP=j.CAP;S.user=j.user;S.status=j.status;S.calls=j.calls;S.q=j.q;S.nextId=j.nextId;S.clock=j.clock;S.log=j.log;S.refused=j.refused;S.settles=j.settles;S.voided=j.voided;S.rules=j.rules;if(S.user&&S.user.live&&!S.user.showcase&&!store.get(LIVE_KEY))S.user=null;}catch(e){}}
 function route(){const h=location.pathname.replace(/^\/+|\/+$/g,"");return h||"home"}
 function go(path,replace){const p=path.split("?")[0];if(location.pathname===p&&!replace)return;history[replace?"replaceState":"pushState"](null,"",path);mount()}
 function linkClick(e){const a=e.target.closest&&e.target.closest("a[href]");if(!a||e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||a.target||a.hasAttribute("download")||a.dataset.act||a.dataset.scroll)return false;const h=a.getAttribute("href")||"";if(h[0]!=="/"||h[1]==="/")return false;e.preventDefault();go(h);return true}
@@ -315,7 +404,7 @@ function renderNav(r){
 function slimBlock(){
   const s=sums();
   const words=S.status==="voided"?"Lease voided. Nothing is held.":`${fmt(s.F)} free to spend, ${fmt(s.A)} owed, ${fmt(s.C)} captured, of ${fmt(CAP)}.`;
-  return `<div class="slimcord"><div aria-hidden="true">${slimSVG()}</div><p class="help num"><span>${words}</span> ${tagHtml("fixture")}</p></div>`;
+  return `<div class="slimcord"><div aria-hidden="true">${slimSVG()}</div><p class="help num"><span>${words}</span> ${liveTag()}</p></div>`;
 }
 
 /* =============================================================
@@ -370,12 +459,13 @@ function paintLead(){
   }
   el.style.setProperty("--amount-width",`${fmt(CAP).length}ch`);
   el.innerHTML=`<h1><span class="num motion-value">${amount}</span> is free to spend.</h1>
-   <p class="sub">You approved ${fmt(CAP)} once. <span class="balance-copy">${balance}</span> The gateway refuses any call that would pass the cap. ${tagHtml("fixture")}</p>`;
+   <p class="sub">You approved ${fmt(CAP)} once. <span class="balance-copy">${balance}</span> The gateway refuses any call that would pass the cap. ${liveTag()}</p>`;
 }
 function paintHonor(){
   const el=$("#honor"); if(!el)return;
   // fixture clock: hour 9 of a 72 hour honor period, day 4 opens the reauthorize window (assumed)
   const pct=h=>(h/96*100).toFixed(1)+"%";
+  if(S.user&&S.user.live){el.innerHTML=`<h2>72 hour honor period, then best effort</h2><p class="help">Honored until ${esc(S.liveHonor||"unknown")} UTC. ${liveTag()}</p>`;return}
   el.innerHTML=`<h2>72 hour honor period, then best effort</h2>
    <div class="rulebar" aria-hidden="true"><i style="left:0;width:${pct(72)}"></i><b style="left:0"></b><b style="left:${pct(72)}"></b><em style="left:${pct(72)};width:${(100-72/96*100).toFixed(1)}%"></em><b style="left:${pct(9)};top:2px;height:25px;width:3px"></b></div>
    <p class="help">Hour 9 of 72. Day 4 opens a reauthorize window that PayPal says is allowed once. ${tagHtml("fixture","fixture clock")} ${tagHtml("computed","proposal, not verified")}</p>`;
@@ -410,8 +500,8 @@ function paintReadout(){
   const el=$("#readout"); if(!el)return;
   const k=S.calls.find(c=>c.id===S.ui.sel);
   const html=k
-    ?`<strong>Call ${k.id}, ${esc(k.tool)}</strong><span class="num">${fmt(k.c)}</span><span>${k.st}</span><span class="num">${k.t}</span>${tagHtml("fixture")}`
-    :`<span class="help">Each pendant is one paid call. Knots by decimal place: tens, dollars, dimes, cents. Solid knots are captured, outlined knots are owed. Hover or tap a pendant to read it.</span>`;
+    ?`<strong>Call ${k.id}, ${esc(k.tool)}</strong><span class="num">${fmt(k.c)}</span><span>${k.st}</span><span class="num">${k.t}</span>${liveTag()}`
+    :S.liveErr?`<span class="help">${esc(S.liveErr)}</span>`:`<span class="help">Each pendant is one paid call. Knots by decimal place: tens, dollars, dimes, cents. Solid knots are captured, outlined knots are owed. Hover or tap a pendant to read it.</span>`;
   paintText(el,html,":scope > :not(.tag)");
 }
 function paintLedger(){
@@ -419,7 +509,7 @@ function paintLedger(){
   const s=sums();
   const visible=visibleLeaseRegions.has(el);
   if(!S.calls.length){
-    el.innerHTML=`<div class="empty"><p><strong>No calls yet.</strong> Each paid call your agent makes ties one pendant onto the cord and takes its price out of the free length.</p><p class="help" style="margin-top:12px">Press Let the agent spend to watch the first one.</p></div>`;
+    el.innerHTML=`<div class="empty"><p><strong>No calls yet.</strong> Each paid call your agent makes ties one pendant onto the cord and takes its price out of the free length.</p><p class="help" style="margin-top:12px">${S.user&&S.user.live?"Calls appear here when your agent pays through the gateway.":"Press Let the agent spend to watch the first one."}</p></div>`;
     return;
   }
   const rowHtml=k=>`<tr class="${S.ui.sel===k.id?"sel":""}" data-id="${k.id}">
@@ -447,17 +537,39 @@ function paintLedger(){
     }
     return;
   }
-  el.innerHTML=`<div class="wide"><table><caption class="sr">Paid calls on this lease, fixture data</caption>
+  el.innerHTML=`<div class="wide"><table><caption class="sr">Paid calls on this lease${S.user&&S.user.live?"":", fixture data"}</caption>
    <thead><tr><th scope="col">Call</th><th scope="col" class="r">Price</th><th scope="col">State</th><th scope="col" class="r">Time</th></tr></thead>
    <tbody>${S.calls.map(rowHtml).join("")}</tbody>
    <tfoot><tr><td>Captured</td><td class="num r">${fmt(s.C)}</td><td colspan="2"></td></tr>
    <tr><td>Owed, not captured</td><td class="num r">${fmt(s.A)}</td><td colspan="2"></td></tr>
    <tr><td>Free to spend</td><td class="num r">${fmt(s.F)}</td><td colspan="2"></td></tr></tfoot></table></div>
    <ul class="log" aria-label="Gateway log" data-seen="${S.log.length}">${S.log.slice(-4).reverse().map(logItem).join("")}</ul>
-   <p class="help" style="margin-top:12px">${tagHtml("fixture","fixture ledger")} Prices and tool names are sample data. Real captures are on Proof.</p>`;
+   <p class="help" style="margin-top:12px">${S.user&&S.user.live?`${liveTag()} Read from this lease’s journal. Tool names are not in the journal. Real captures are on Proof.`:`${tagHtml("fixture","fixture ledger")} Prices and tool names are sample data. Real captures are on Proof.`}</p>`;
 }
 function paintControls(){
   const el=$("#controls"); if(!el)return;
+  if(S.user?.showcase){
+    const data=S.showcase;
+    if(data?.mode==="recorded"){
+      el.innerHTML=`<p>${liveTag()} · Read-only sandbox run. <a href="/proof">Proof</a></p>`;
+      return;
+    }
+    const budget=data?.remaining_calls??0;
+    if(!el.querySelector("#showcase-price")){
+      el.innerHTML=`<p class="help" id="showcase-budget"></p>
+        <button class="btn fill" data-act="showcase-run">Run the agent</button>
+        <label for="showcase-price">Price in cents</label>
+        <input id="showcase-price" type="number" min="1" step="1" value="${Math.min(Number.MAX_SAFE_INTEGER, CAP+1)}">
+        <button class="btn" data-act="showcase-try">Try to break it</button>
+        <p class="help" id="showcase-result" role="status"></p><p><a href="/proof">Proof</a></p>`;
+    }
+    $("#showcase-budget").textContent=`Computed budget remaining: ${fmt(Number(data?.lease.balances.hold_available??0))}. Demo calls left: ${budget}.`;
+    $("#showcase-result").textContent=S.showcaseMessage||"";
+    el.querySelector('[data-act="showcase-run"]').disabled=!!S.showcaseBusy||!budget;
+    el.querySelector('[data-act="showcase-try"]').disabled=!!S.showcaseBusy;
+    return;
+  }
+  if(S.user&&S.user.live){el.dataset.phase="live";el.innerHTML=`<p><strong>Live lease.</strong> Your agent spends through the gateway. This page only reads the journal. It cannot spend, settle or void.</p>`;return}
   const s=sums();
   const visible=visibleLeaseRegions.has(el);
   if(S.status==="voided"){
@@ -541,7 +653,7 @@ function spend(){
   return true;
 }
 function startRun(){if(S.running||S.ui.voidOpen)return;S.running=true;S.timer=setInterval(()=>{if(!spend())return},1500);paintControls()}
-function stopRun(){S.running=false;clearInterval(S.timer);S.timer=null}
+function stopRun(){S.running=false;clearInterval(S.timer);S.timer=null;clearInterval(S.livePoll);S.livePoll=null}
 
 /* ---------- approve ---------- */
 V.approve=()=>{
@@ -761,6 +873,39 @@ function exitBundlePart(root,source,rect,origin,x,y,duration){
   motion(node,[{opacity:1,transform:"none"},{opacity:0,transform:`translate(${x}px,${y}px)`}],duration,"forwards").finished.then(()=>node.remove(),()=>node.remove());
 }
 
+async function showcaseAction(action){
+  if(S.showcaseBusy||S.showcase?.mode!=="live")return;
+  const price=$("#showcase-price")?.value;
+  S.showcaseBusy=true; S.showcaseMessage="Checking the lease."; paintControls();
+  try{
+    const response=await fetch("/api/showcase/"+action+(action==="try"?"?price_minor="+encodeURIComponent(price):""),{
+      method:"POST",headers:{"Content-Type":"application/json"}
+    });
+    const data=await response.json();
+    S.showcaseMessage=data.reason?`Refused: ${data.reason}. Computed price ${fmt(data.price_minor)}, remaining ${fmt(data.remaining_minor)}.`
+      :data.error==="demo_limit"?"The demo call limit has been reached."
+      :data.charged?`The model call failed after the computed ${fmt(data.price_minor)} charge.`
+      :data.error?`Request unavailable: ${data.error}.`
+      :action==="try"?"The kernel allows that price. No call was made."
+      :`Computed charge ${fmt(data.price_minor)}. ${data.result?.summary||""}`;
+    if(S.user?.showcase&&S.showcase?.lease.id){
+      try{sessionStorage.setItem("showcase-result:"+S.showcase.lease.id,S.showcaseMessage)}catch{}
+    }
+    await liveLoad();
+  }catch{S.showcaseMessage="The showcase request could not be completed."}
+  finally{S.showcaseBusy=false;if(current==="lease"&&S.user?.showcase)paintLease({});}
+}
+
+function showcaseProof(data){
+  const tables=[
+    ["Tool calls",data.calls],["Journal",data.journal.entries],["PayPal captures",data.captures],
+  ];
+  return `<div class="wrap" id="showcase-proof"><h1>Showcase proof</h1>
+    <p>${tagHtml("computed",data.mode==="recorded"?"recorded "+data.recorded_on:"live database rows")}</p>
+    ${tables.map(([name,rows])=>`<h2>${name}</h2><div class="wide"><pre>${esc(JSON.stringify(rows,null,2))}</pre></div>`).join("")}
+    <p><a href="/lease?showcase=1">Showcase lease</a></p></div>`;
+}
+
 /* ---------- proof ---------- */
 V.proof=()=>{
   const rows=MEASURED.map(([id,t],i)=>`<tr><td class="num">${String(i+1).padStart(2,"0")}</td><td class="num">${id}</td><td class="num">${t}</td><td class="num r">$1.00</td><td class="num r">$0.52</td><td>COMPLETED</td></tr>`).join("");
@@ -848,7 +993,7 @@ function renderChrome(mode,v){
       <div class="acts"><a class="nav-login" href="/">Exit</a></div></div>`;
   }else{
     h.innerHTML=`<div class="bar wrap">${brand("/lease","Pashadhara, lease")}<nav aria-label="Primary"><ul id="nav"></ul></nav>
-      <div class="acts"><span class="who">${esc(S.user?.sample?"Sample lease":S.user?.name||"")}</span><button class="link-btn so" data-act="signout">Sign out</button></div></div>`;
+      <div class="acts"><span class="who">${esc(S.user?.showcase?"Showcase lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease":S.user?.name||"")}</span><button class="link-btn so" data-act="signout">Sign out</button></div></div>`;
     renderNav(v);
   }
   renderFooter(mode);
@@ -979,7 +1124,7 @@ V.home=()=>`
 <section class="hero"><div class="wrap">
   <h1>Give your agent a budget it cannot break.</h1>
   <p class="lede">One PayPal hold becomes a spending limit that lives outside the model. Approve once, watch it spend, void whenever you want.</p>
-  <div class="ctas"><a class="btn accent" href="/signup">Start with a $20 hold</a><a class="btn" href="/" data-act="sample">Explore a sample lease</a></div>
+  <div class="ctas"><a class="btn accent" href="/lease?showcase=1">Open showcase lease</a><a class="btn" href="/signup">Start with a $20 hold</a><a class="btn" href="/" data-act="sample">Explore a sample lease</a></div>
   <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><button class="btn sm" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause the demo</button></div>
   <p class="sr">An animated lease cord. An agent ties paid calls onto a twenty dollar hold, calls are settled in one capture, and a call that would pass the cap is refused.</p>
 </div></section>
@@ -1204,8 +1349,9 @@ function siteClick(e){
   const a=el.dataset.act, s=S.su;
   if(el.getAttribute("aria-disabled")==="true"&&a!=="how"){e.preventDefault();return true}
   switch(a){
-    case "sample": case "sample-proof": e.preventDefault(); resetSample(); S.user={name:"Sample",sample:true}; go(a==="sample"?"/lease":"/proof"); return true;
-    case "signout": stopRun(); S.user=null; S.su=suFresh("signup"); go("/",true); say("Signed out."); return true;
+    case "showcase-run": case "showcase-try": e.preventDefault(); void showcaseAction(a==="showcase-run"?"run":"try"); return true;
+    case "sample": case "sample-proof": e.preventDefault(); store.del(LIVE_KEY); resetSample(); S.user={name:"Sample",sample:true}; go(a==="sample"?"/lease":"/proof"); return true;
+    case "signout": stopRun(); store.del(LIVE_KEY); S.user=null; S.su=suFresh("signup"); go("/",true); say("Signed out."); return true;
     case "hero-pause": {const p=!HD.paused;HD.paused=p;el.textContent=p?"Play the demo":"Pause the demo";el.setAttribute("aria-pressed",String(p));heroPlayback();return true}
     case "how": howPaint(+el.dataset.i); el.focus(); return true;
     case "su-back": if(s.paypal==="busy"||s.approve==="busy")return true; if(s.step===2){clearInterval(resendTimer)} suGo(s.mode==="login"?1:Math.max(1,s.step-1)); return true;
@@ -1278,10 +1424,13 @@ on(document,"keydown",e=>{
 ============================================================= */
 let current="";
 function mount(){
+  liveTake();
   const r=route();
+  if(r==="lease"&&new URLSearchParams(location.search).get("showcase")==="1"&&!location.hash)enterShowcase();
   const v=(r==="home")?"home":(r==="signup"||r==="login")?"flow":(APP_ROUTES.includes(r)?r:"home");
   if(r!=="home"&&v==="home")history.replaceState(null,"","/");
-  if(APP_ROUTES.includes(v)&&!S.user){go("/",true);return}
+  if(APP_ROUTES.includes(v)&&!S.user&&v!=="proof"){go("/",true);return}
+  if(S.user&&S.user.live&&(v==="settle"||v==="approve")){go("/lease",true);return}
   if(S.status==="none"&&["lease","escrow","settle"].includes(v)){go("/approve",true);return}
   const captured=v==="lease"&&current==="settle"?S.ui.settleDone?.ids:null;
   leaseObserver?.disconnect();
@@ -1296,14 +1445,20 @@ function mount(){
   else{
     renderChrome("app",v);
     document.title=({lease:"Lease",approve:"New lease",escrow:"Escrow",settle:"Settle",proof:"Proof"})[v]+" | Pashadhara";
-    main.innerHTML=V[v]();
-    if(v==="lease"){
+    const waitLive=Boolean(S.user&&S.user.live&&v==="lease"&&!S.liveReady);
+    main.innerHTML=waitLive?`<div class="wrap"><p class="sub" role="status">Reading the live lease.</p></div>`:V[v]();
+    if(waitLive){liveLoad().then(ok=>{if(current!=="lease"||!S.user||!S.user.live)return;if(ok){S.liveReady=true;S.liveChanged=false;mount()}else $("#main").innerHTML=`<div class="wrap"><p class="sub" role="alert">${esc(S.liveErr)}</p></div>`})}
+    else if(v==="lease"){
+      if(S.user&&S.user.live)liveStart();
       paintLease();
       watchLeaseRegions();
       if(captured){
         $("#cord").querySelectorAll(".pendants .pen").forEach(pen=>{if(captured.includes(+pen.dataset.id))previousKnots(pen)});
         delete S.ui.settleDone.ids;
       }
+    }
+    if(v==="proof"&&(!S.user||S.user.showcase)){
+      loadShowcase().then(data=>{if(current==="proof"&&(!S.user||S.user.showcase))main.innerHTML=showcaseProof(data)+V.proof();}).catch(()=>{});
     }
     if(v==="escrow")paintEscrow();
     if(v==="settle")paintSettle();

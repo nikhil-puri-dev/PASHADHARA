@@ -1,0 +1,93 @@
+{
+  "mode": "recorded",
+  "recorded_on": "2026-11-11",
+  "provenance": "computed",
+  "lease": {
+    "cap_minor": 5,
+    "state": "active",
+    "balances": {
+      "buyer_commitment": 5,
+      "hold_available": 2,
+      "committed_unsettled": 3,
+      "captured_gross": 0,
+      "paypal_fees": 0,
+      "seller_cost": 0,
+      "seller_payable": 0,
+      "released": 0,
+      "written_off": 0,
+      "chargeback_loss": 0,
+      "total_captured": 0
+    },
+    "authorizations": [
+      {
+        "amount_minor": 5,
+        "status": "created",
+        "honor_until": "2026-11-14T07:50:46+00:00"
+      }
+    ]
+  },
+  "journal": {
+    "entries": [
+      {
+        "id": 1,
+        "account": "HOLD_AVAILABLE",
+        "direction": "D",
+        "amount_minor": 5,
+        "ref_type": "authorize",
+        "created_at": "2026-11-11T07:50:46.339Z"
+      },
+      {
+        "id": 2,
+        "account": "BUYER_COMMITMENT",
+        "direction": "C",
+        "amount_minor": 5,
+        "ref_type": "authorize",
+        "created_at": "2026-11-11T07:50:46.339Z"
+      },
+      {
+        "id": 3,
+        "account": "COMMITTED_UNSETTLED",
+        "direction": "D",
+        "amount_minor": 3,
+        "ref_type": "commit",
+        "created_at": "2026-11-11T07:52:23.282Z"
+      },
+      {
+        "id": 4,
+        "account": "HOLD_AVAILABLE",
+        "direction": "C",
+        "amount_minor": 3,
+        "ref_type": "commit",
+        "created_at": "2026-11-11T07:52:23.282Z"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "tool_id": "summarise",
+      "price_minor": "3",
+      "status": "served",
+      "created_at": "2026-11-11T07:52:23.282Z"
+    },
+    {
+      "tool_id": "summarise",
+      "price_minor": "3",
+      "status": "refused_cap",
+      "created_at": "2026-11-11T07:52:24.643Z"
+    },
+    {
+      "tool_id": "summarise",
+      "price_minor": "3",
+      "status": "refused_cap",
+      "created_at": "2026-11-11T07:52:24.673Z"
+    },
+    {
+      "tool_id": "summarise",
+      "price_minor": "3",
+      "status": "refused_cap",
+      "created_at": "2026-11-11T07:56:31.650Z"
+    }
+  ],
+  "captures": [],
+  "remaining_calls": 0
+}

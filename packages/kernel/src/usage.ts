@@ -36,21 +36,7 @@ export async function commitUsageInTransaction(
   } else {
     amount = usage.amount_minor;
   }
-  if (amount <= 0n) throw new Error('Usage amount must be positive');
-
-  const limits = await one<{ state: string; unsettled_limit_minor: string; within_window: boolean; voiding: boolean }>(tx, `select
-    l.state, l.unsettled_limit_minor,
-    exists(select 1 from public.authorizations a where a.lease_id=l.id and a.status in ('created','partially_captured')
-      and a.honor_until>clock_timestamp()) as within_window,
-    exists(select 1 from public.paypal_calls p where p.lease_id=l.id and p.op='void'
-      and p.state in ('intent','sent','unknown')) as voiding
-    from public.leases l where l.id=$1`, [leaseId]);
-  const { hold, committed } = await balances(tx, leaseId);
-  let status: UsageStatus = 'served';
-  if (!active) status = 'refused_inactive';
-  else if (limits.state !== 'active' || !limits.within_window || limits.voiding) status = 'refused_window';
-  else if (amount > hold) status = 'refused_cap';
-  else if (amount + committed > BigInt(limits.unsettled_limit_minor)) status = 'refused_exposure';
+  const { status } = await checkUsage(tx, leaseId, amount, active);
 
   if (usage.kind === 'job' && status !== 'served') {
     return { id: null, status, amount_minor: amount, ledger_group_id: null, replayed: false };
@@ -65,6 +51,29 @@ export async function commitUsageInTransaction(
       values ($1,$2,$3,$4,$5,$6,$7)`, [id, leaseId, usage.tool_id, usage.idempotency_key, amount, status, group]);
   }
   return { id, status, amount_minor: amount, ledger_group_id: group, replayed: false };
+}
+
+export function previewUsage(db: Database, leaseId: string, amount: bigint) {
+  return db.transaction(leaseId, tx => checkUsage(tx, leaseId, amount, true));
+}
+
+async function checkUsage(tx: Tx, leaseId: string, amount: bigint, active: boolean) {
+  if (amount <= 0n) throw new Error('Usage amount must be positive');
+
+  const limits = await one<{ state: string; unsettled_limit_minor: string; within_window: boolean; voiding: boolean }>(tx, `select
+    l.state, l.unsettled_limit_minor,
+    exists(select 1 from public.authorizations a where a.lease_id=l.id and a.status in ('created','partially_captured')
+      and a.honor_until>clock_timestamp()) as within_window,
+    exists(select 1 from public.paypal_calls p where p.lease_id=l.id and p.op='void'
+      and p.state in ('intent','sent','unknown')) as voiding
+    from public.leases l where l.id=$1`, [leaseId]);
+  const { hold, committed } = await balances(tx, leaseId);
+  const status: UsageStatus = !active ? 'refused_inactive'
+    : limits.state !== 'active' || !limits.within_window || limits.voiding ? 'refused_window'
+    : amount > hold ? 'refused_cap'
+    : amount + committed > BigInt(limits.unsettled_limit_minor) ? 'refused_exposure' : 'served';
+  return { status, hold };
+
 }
 
 export async function returnUnpaid(tx: Tx, lease: string, job: string) {

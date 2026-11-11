@@ -1,0 +1,42 @@
+import { Database } from '../../../packages/kernel/src/db.ts';
+import { PayPalClient } from '../../../packages/paypal/src/index.ts';
+import { approvalFlow } from '../src/approval.ts';
+import { isUuid } from '../src/auth.ts';
+import { readHandlers } from '../src/read-handlers.ts';
+import { seedSummarise } from './live-seed.ts';
+
+async function main() {
+  const { DATABASE_URL, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, LEASE_TOKEN_SECRET, API_BASE_URL, SELLER_A_EMAIL } = process.env;
+  if (!DATABASE_URL || !PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET || !LEASE_TOKEN_SECRET || !API_BASE_URL || !SELLER_A_EMAIL) {
+    throw new Error('Missing showcase seed configuration. See docs/showcase.md.');
+  }
+  const [action, leaseId] = process.argv.slice(2);
+  if (action !== 'create' && !(action === 'activate' && leaseId && isUuid(leaseId))) {
+    throw new Error('Use showcase-seed.mts create or showcase-seed.mts activate LEASE_ID.');
+  }
+  const db = new Database(DATABASE_URL);
+  try {
+    const paypal = new PayPalClient(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET);
+    const flow = approvalFlow(db, paypal, API_BASE_URL, LEASE_TOKEN_SECRET, readHandlers(db).getLease!);
+    const input = { request: new Request('http://localhost'), principal: null, query: {}, params: { leaseId: leaseId ?? '' } };
+    if (action === 'create') {
+      await seedSummarise(db, SELLER_A_EMAIL);
+      const created = await flow.create({ ...input, body: { buyer_ref: 'public-showcase', cap_minor: 1000, unsettled_limit_minor: 700 } });
+      if (created.status !== 201) throw new Error('Sandbox order creation failed.');
+      const body = created.body as { lease_id: string; approve_url: string };
+      console.log(JSON.stringify({ http: created.status, lease_id: body.lease_id, approve_url: body.approve_url }));
+    } else {
+      const activated = await flow.authorize({ ...input, body: undefined });
+      if (activated.status !== 200) throw new Error('Sandbox approval is not confirmed.');
+      console.log(JSON.stringify({ http: activated.status, showcase_lease_id: leaseId }));
+    }
+  } finally {
+    await db.end();
+  }
+}
+
+await main().catch(error => {
+  console.error(error instanceof Error && /^Use showcase|^Missing showcase|^Sandbox (order|approval)/.test(error.message)
+    ? error.message : 'Showcase seed failed. Check the local database and sandbox order before retrying.');
+  process.exitCode = 1;
+});

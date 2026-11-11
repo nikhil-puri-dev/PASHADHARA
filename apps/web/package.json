@@ -10,6 +10,7 @@
     "generate:contract": "openapi-typescript ../../packages/contract/openapi.yaml -o lib/contract.d.ts",
     "replay:proof": "node scripts/replay-proof.mjs",
     "check:cord": "node scripts/check-cord.mjs",
+    "check:live": "node scripts/check-live.mjs",
     "check:motion": "node scripts/with-motion-server.mjs scripts/check-motion.mjs"
   },
   "dependencies": {

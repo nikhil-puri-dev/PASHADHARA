@@ -124,18 +124,19 @@ test('production entry serves sandbox approval, scoped auth and durable signed w
     headers: { authorization: `Bearer ${first.lease_token}`, 'X-Pashadhara-Lease': second.lease_id, 'Idempotency-Key': 'fixture' },
   })).status, 401);
   const invoke = async (token: string) => {
-    const hash = createHash('sha256').update('text_stats\0fixture').digest('hex');
+    const hash = createHash('sha256').update('summarise\0fixture').digest('hex');
     const response = await app.request('/api/mcp', {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}` },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
-        name: 'text_stats', arguments: { text: 'fixture', idempotency_key: `${randomUUID()}:${hash}` },
+        name: 'summarise', arguments: { text: 'fixture', idempotency_key: `${randomUUID()}:${hash}` },
       } }),
     });
     assert.equal(response.status, 200);
     return JSON.stringify(await response.json());
   };
-  assert.match(await invoke(first.lease_token), /metering_unavailable/);
+  // No model key in this test environment, so the gateway refuses before any charge or provider call.
+  assert.match(await invoke(first.lease_token), /tool_unavailable/);
   assert.match(await invoke(first.lease_token + 'x'), /valid lease token is required/);
   const sellerPath = '/api/v1/sellers';
   const sellerBody = { name: 'Fixture', paypal_email: 'fixture@example.test' };

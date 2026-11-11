@@ -43,3 +43,5 @@ docs/requests/
 .claude/
 .DS_Store
 Thumbs.db
+
+.vercel

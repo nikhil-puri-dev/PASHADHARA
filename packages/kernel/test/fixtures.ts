@@ -2,9 +2,13 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import * as kernel from '../src/index.ts';
 
-// Hard-coded to the isolated Kernel container. No environment or remote URL is read.
-export const admin = new pg.Pool({ connectionString: 'postgres://postgres@127.0.0.1:15433/postgres' });
-export const db = new kernel.Database('postgres://kernel_login@127.0.0.1:15433/postgres');
+// Only allow a named throwaway database on the Rails test container.
+const database = process.env.KERNEL_TEST_DATABASE;
+if (database && !/^live_[a-z0-9_]+$/.test(database)) throw new Error('Invalid throwaway test database name');
+const target = database ? `127.0.0.1:15434/${database}` : '127.0.0.1:15433/postgres';
+export const admin = new pg.Pool({ connectionString: `postgres://postgres@${target}` });
+export const kernelTestUrl = `postgres://kernel_login@${target}`;
+export const db = new kernel.Database(kernelTestUrl);
 export const prefix = randomUUID();
 export let seller: string;
 

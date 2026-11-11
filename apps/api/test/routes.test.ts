@@ -64,3 +64,13 @@ test('protected routes fail closed without an authenticated principal', async ()
   const app = createRoutes(contract, {}, async () => null);
   assert.equal((await app.request(`http://localhost/api/v1/leases/${uuid}`)).status, 401);
 });
+test('oversize job acceptance is rejected before the kernel reserves funds', async () => {
+  let called = false;
+  const app = createRoutes(contract, { createJob: async () => { called = true; return { status: 201 }; } }, async () => ({}));
+  const response = await app.request('http://localhost/api/v1/jobs', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ lease_id: uuid, seller_id: uuid, amount_minor: 1, rubric: [], acceptance: { max_bytes: 8193 } }),
+  });
+  assert.equal(response.status, 400);
+  assert.equal(called, false);
+});

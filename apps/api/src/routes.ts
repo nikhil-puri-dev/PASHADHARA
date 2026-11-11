@@ -57,7 +57,7 @@ export function createRoutes(contract: Contract, handlers: Record<string, RouteH
     for (const [method, operation] of Object.entries(methods)) {
       if (!['get', 'post', 'put', 'patch', 'delete'].includes(method)) continue;
       const name: string = operation.operationId;
-      const limitBody = name === 'receivePayPalWebhook' || name === 'createLease';
+      const limitBody = name === 'receivePayPalWebhook' || name === 'createLease' || name === 'createJob' || name === 'deliverJob';
       const escaped = path.replace(/~/g, '~0').replace(/\//g, '~1');
       const base = `/paths/${escaped}/${method}`;
       const bodySchema = operation.requestBody?.content?.['application/json']?.schema
@@ -92,6 +92,12 @@ export function createRoutes(contract: Contract, handlers: Record<string, RouteH
             if (!c.req.header('content-type')?.toLowerCase().startsWith('application/json')) return problem(415, 'Expected application/json');
             try { body = JSON.parse(rawBody); } catch { return problem(400, 'Invalid JSON'); }
             if (!bodySchema(body)) return problem(400, 'Invalid request body');
+            if (name === 'createJob') {
+              const { max_bytes } = (body as { acceptance?: { max_bytes?: number } }).acceptance ?? {};
+              if (max_bytes !== undefined && (!Number.isSafeInteger(max_bytes) || max_bytes <= 0 || max_bytes > 8192)) {
+                return problem(400, 'max_bytes must be 1 to 8192');
+              }
+            }
             if (name === 'createLease' && [...(body as { buyer_ref: string }).buyer_ref].length > maxBuyerRefLength) {
               return problem(400, 'buyer_ref exceeds 128 characters');
             }

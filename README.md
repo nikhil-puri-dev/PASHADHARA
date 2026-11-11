@@ -1,71 +1,63 @@
 # PASHADHARA
 
-One PayPal authorization hold is an AI agent's spending budget. The buyer approves once. A gateway meters paid tools against that hold. Escrowed jobs are judged by two AI providers, and the database, not the model, computes the payout. Built for the PayPal AI Hackathon.
+PASHADHARA turns a PayPal sandbox authorization into a spending budget for an AI agent. The gateway checks each tool call against the journal before running it. For escrow jobs, two models judge the deliverable and the kernel calculates the payment from the buyer's rubric.
 
-PayPal has no agent wallet. The honest guarantee is a 72 hour lease, then best effort. We say so in the product.
+## Try the demo
 
-## What is real and what is not
+Open the showcase lease and choose **Run the agent** to make a real Haiku-backed paid call while the sandbox authorization and demo budget are available. Enter a price above the remaining hold and choose **Try to break it** to see the kernel refuse it. **Proof** shows the public journal, call and capture rows. The showcase uses a dedicated sandbox hold and requires no signup or credentials. When no showcase lease is configured, the page labels the dated recording and offers read-only access. [Open the demo](https://pashadhara.vercel.app/lease?showcase=1)
 
-Every number in the product and in these docs carries one label.
+## How it works
 
-| Label | Meaning |
-|---|---|
-| measured | A PayPal sandbox response in `evidence/` shows it |
-| computed | Our code derived it from measured data |
-| fixture | Test data, never shown as PayPal output |
+- PayPal Orders creates the order with `AUTHORIZE` intent and turns the buyer's approval into an authorization. Payments captures from that authorization or voids it. Payouts sends the seller's accrued amount and reads back the batch. The webhook handler verifies signatures and reconciles from a fresh PayPal read.
+- Claude Haiku 5.5 summarises text through the metered MCP tool. Haiku 5.5 and GPT-6 Luna independently propose escrow verdicts. The kernel maps their verdicts and scores to a payment using the buyer's fixed rubric and integer cents.
+- The showcase labels computed figures from the journal and identifies recorded sandbox data by date. PayPal outputs are measured, and sample flows are labelled fixture. The documented PayPal authorization honor period is 72 hours.
 
-Measured in the PayPal sandbox: authorize then 12 partial captures on one authorization, per capture fees (about 0.49 + 3.49%), a void, a USD 2.41 payout reaching SUCCESS, and a full USD 20.00 lease closed with USD 11.00 released and zero unresolved intents ([run report](docs/runs/replacement-sandbox-run.md)).
-
-Not proven: reauthorization on day 4, capture after day 3, webhook latency and order, the 115 percent overage boundary. The web app is still wired to recorded and fixture data, not a live deployment. Sandbox only, never live credentials.
-
-Account and contact fields in `evidence/*.jsonl` are replaced with `[masked]`. Everything else is as PayPal returned it. `node evidence/mask-log.mjs <raw> <masked>` makes a masked copy.
-
-## How it is built
-
-```
-apps/api          Hono API, MCP gateway, webhooks, reconcile
-apps/web          Next.js app: the cord design (lease, escrow, settle, proof)
-packages/contract SQL schema, invariants I1 to I18, OpenAPI 0.5.1 (frozen)
-packages/kernel   Money journal, state machines, judge envelope, fee planner
-packages/paypal   PayPal adapter
-supabase          Migrations
-design/cord       Source of truth for the web design
-evidence          Sandbox logs (masked), spike scripts, motion measurements
-docs              Reviews, run reports, build notes
+```mermaid
+flowchart LR
+  Browser["Buyer or judge"] --> Web["Next.js showcase"]
+  Web --> API["Hono API and MCP gateway"]
+  Agent["AI agent"] --> API
+  API --> Kernel["Deterministic kernel"]
+  Kernel --> DB["Postgres journal and limits"]
+  API --> PayPal["PayPal Sandbox Orders, Payments and Payouts"]
+  PayPal -->|Signed webhooks| API
+  API --> Haiku["Claude Haiku 5.5 tool and judge"]
+  API --> Luna["GPT-6 Luna judge"]
+  Haiku -->|Verdict and score| Kernel
+  Luna -->|Verdict and score| Kernel
 ```
 
-Rules the code holds itself to are in [AGENTS.md](AGENTS.md). In short: money is `bigint` cents, no model ever chooses an amount, an unknown PayPal result is read back before any retry, and webhooks are verified, deduplicated and re-read.
+## Run locally
 
-## Run it
-
-Needs Node 20 or newer and pnpm 11.
+Use Node 24, the workspace-pinned pnpm version, and Docker. Start an isolated Postgres container named `pashadhara-rails-15434`. The helper creates a fresh named database and loads the frozen schema and kernel roles.
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm test
+docker run -d --name pashadhara-rails-15434 -p 127.0.0.1:15434:5432 -e POSTGRES_HOST_AUTH_METHOD=trust postgres:15
+bash apps/api/scripts/live-db.sh live_local
+pnpm -r --if-present typecheck
+pnpm --filter @pashadhara/web build
 ```
 
-The kernel suites need a throwaway Postgres 15 with the schema loaded:
+For the API service smoke test, also load the schema and roles into the throwaway container's default `postgres` database.
 
 ```bash
-docker run -d --name pashadhara-test -p 127.0.0.1:15433:5432 -e POSTGRES_HOST_AUTH_METHOD=trust postgres:15
-# then apply supabase/migrations/0001_init.sql and packages/contract/roles.sql as postgres
+docker exec pashadhara-rails-15434 psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/schema.sql
+docker exec pashadhara-rails-15434 psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/roles.sql
+KERNEL_TEST_DATABASE=live_local pnpm test
 ```
 
-Other checks:
+For the connected demo, copy `.env.example` to `.env`, set `DATABASE_URL` to the local kernel URL printed by the helper, and use sandbox credentials. Follow the showcase setup to create and activate the lease. Then start the API and web app in separate terminals. [Showcase setup](docs/showcase.md)
 
 ```bash
-pnpm contract:schema                       # 248 schema checks, about 35 seconds
-pnpm contract:race                         # Docker Postgres race checks
-pnpm --filter @pashadhara/web typecheck
-pnpm --filter @pashadhara/web replay:proof # replays 12 logged captures and a void through the kernel
-pnpm --filter @pashadhara/web build && pnpm --filter @pashadhara/web check:cord
+# API
+node --env-file=.env --import ./apps/api/node_modules/tsx/dist/loader.mjs apps/api/src/local.ts
+# Web
+PASHADHARA_API_ORIGIN=http://127.0.0.1:3000 pnpm --filter @pashadhara/web dev --port 3100
 ```
 
-Contract file hashes: `cd packages/contract && sha256sum -c ../../docs/contract-v0.5.1.sha256`.
-
-To use real sandbox calls, copy `.env.example` to `.env` and add your own sandbox keys.
+Open `http://127.0.0.1:3100/lease?showcase=1`.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT. [LICENSE](LICENSE)
