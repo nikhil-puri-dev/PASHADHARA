@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { CordApp } from "../../components/cord-app";
 
 const TITLES: Record<string, string> = {
-  "": "Pashadhara | A budget your agent cannot break",
+  "": "Pashadhara | Your agent can spend $20.00. Not $20.01.",
   signup: "Create your account | Pashadhara",
   login: "Log in | Pashadhara",
   lease: "Lease | Pashadhara",

@@ -54,8 +54,8 @@ try {
     const res = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
     assert.equal(res.status(), 200);
     await page.locator("#herocord svg").waitFor();
-    assert.match(await h1(page), /budget it cannot break/);
-    assert.equal(await page.locator(".brand .hh").count(), 2, "wordmark has two cord H bars");
+    assert.match(await h1(page), /Your agent can spend \$20\.00\.\s*Not \$20\.01\./);
+    assert.equal((await page.locator(".brand .word").first().textContent()).trim(), "Pashadhara", "plain wordmark");
     assert.ok(await page.locator(".brand .mark").count(), "knot mark present");
     ok("landing renders with the knot mark and the two H bars");
 
@@ -63,8 +63,8 @@ try {
     await page.goto(`${origin}/lease`, { waitUntil: "networkidle" });
     await page.waitForURL(`${origin}/`); ok("signed out /lease bounces to /");
 
-    await page.locator("#hdr").getByRole("link", { name: "Get started" }).click();
-    await page.waitForURL(/\/signup$/); assert.equal(await h1(page), "Create your account");
+    await page.goto(`${origin}/signup`, { waitUntil: "networkidle" });
+    assert.equal(await h1(page), "Create your account");
     await page.getByRole("button", { name: "Send the code" }).click();
     assert.equal(await page.locator(".errtxt").count(), 2, "both fields explain themselves"); ok("sign up validates inline");
     await page.fill("#suName", "Nikhil"); await page.fill("#suEmail", "nikhil@example.com");

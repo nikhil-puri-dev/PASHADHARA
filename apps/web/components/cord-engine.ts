@@ -233,7 +233,7 @@ function cordSVG(o,retained){
     main+=`<g data-part="released" class="released-trace"><rect x="${xc}" y="${y0+21}" width="${Math.max(wT-wA,0)}" height="18" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="5 4"/></g>`;
     main+=`<path data-part="cut" d="M${xc} ${y0-12}v24" stroke="currentColor" stroke-width="2"/>`;
   }else{
-    main+=seg("free",xc,wF,"#8C1D38",ply);               // free to spend: cochineal
+    main+=seg("free",xc,wF,"#1B6F7A",ply);               // free to spend: tide (still water). Red is kept for refusals.
     if(wA>0&&wF>0)main+=whip("free-edge",xc);
   }
   const endx=o.voided&&o.live?xc:x0+L;
@@ -283,7 +283,7 @@ function cordSVG(o,retained){
       ${o.interactive?`<rect class="hit" data-id="${it.id}" x="${x-(vertical?22:30)}" y="${y0+9}" width="${vertical?44:60}" height="${len+10}"><title>${esc(`Call ${it.id}, ${it.tool||"paid call"}, ${fmt(it.c)}, ${it.st}. Hover or tap for the raw row.`)}</title></rect>`:""}
     </g>`;
   }
-  const H=y0+(items.length||o.live?Math.round((292+4*12)*ps)+40:78);
+  const H=y0+(items.length||(o.live&&vertical)?Math.round((292+4*12)*ps)+40:(o.live?Math.round(120*ps):78));
   const end=`<g data-part="end" data-x="${endx}"><title>The cap. The gateway refuses a call that would pass this end.</title>${frays}</g>`;
   const inner=retained?`<g class="pendants">${pens}</g><g class="rail">${main}${end}</g>`:o.live
     ?`<g>${ticks}</g><g filter="${soft}">${loop}</g><g class="pendants">${pens}</g><g class="rail">${main}${end}</g><g class="cord-fx" aria-hidden="true"></g>`
@@ -438,7 +438,7 @@ function slimSVG(o){
   return `<svg viewBox="0 0 1072 44" aria-hidden="true"><defs>
     <pattern id="plyS" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><line x1="0" y1="0" x2="0" y2="7" stroke="#231F1B" stroke-opacity=".3" stroke-width="1.6"/></pattern>
     <pattern id="hatchS" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(35)"><line x1="0" y1="0" x2="0" y2="7" stroke="#231F1B" stroke-opacity=".38" stroke-width="1.2"/></pattern></defs>
-    ${r("captured",x0,wC,GOLD,"url(#plyS)")}${r("owed",x0+wC,wA,"#F3EFE2","url(#hatchS)")}${r("free",x0+wC+wA,wF,"#8C1D38","url(#plyS)")}</svg>`;
+    ${r("captured",x0,wC,GOLD,"url(#plyS)")}${r("owed",x0+wC,wA,"#F3EFE2","url(#hatchS)")}${r("free",x0+wC+wA,wF,"#1B6F7A","url(#plyS)")}</svg>`;
 }
 
 /* =============================================================
@@ -448,7 +448,7 @@ const KEY="pashadhara-session";
 /* Live mode: reads one lease from the API with its lease token. Entered with /lease#live=<lease id>.<token>.
    The fragment never reaches a server and is stripped from the address bar at once. */
 const LIVE_KEY="pashadhara-live";
-const liveTag=()=>S.user&&S.user.live?(S.showcase?.mode==="recorded"?tagHtml("recorded","recorded "+S.showcase.recorded_on):tagHtml("computed","live journal")):tagHtml("fixture");
+const liveTag=()=>S.user&&S.user.live?(S.showcase?.mode==="recorded"?tagHtml("recorded","recorded "+S.showcase.recorded_on):tagHtml("computed",S.showcase?.ended?"journal, hold ended":"live journal")):tagHtml("fixture");
 function liveTake(){
   const m=/^#live=([0-9a-f-]{36})\.([\w.-]{20,600})$/i.exec(location.hash);
   if(!m)return;
@@ -457,16 +457,29 @@ function liveTake(){
   stopRun(); S.user={name:"Live lease",live:true}; S.liveReady=false; S.liveSig=""; S.liveErr="";
   S.status="active"; S.calls=[]; S.log=[]; S.refused=0; S.settles=[]; S.voided=null; S.ui.sel=null;
 }
+/* Never a blank page. If the gateway cannot be reached, the dated recording is shown and says so.
+   If the hold's honor period has ended, the live journal is still shown, marked ended, and spending is off. */
 async function loadShowcase(){
-  const response=await fetch("/api/showcase",{cache:"no-store"});
-  if(!response.ok)throw new Error("HTTP "+response.status);
-  const data=await response.json();
-  return data.mode==="recorded"?recordedShowcase:data;
+  let data;
+  try{
+    const abort=new AbortController(), cut=setTimeout(()=>abort.abort(),8000);
+    try{
+      const response=await fetch("/api/showcase",{cache:"no-store",signal:abort.signal});
+      if(!response.ok){try{await response.body?.cancel()}catch(e){}throw new Error("HTTP "+response.status)}
+      data=await response.json();
+    }finally{clearTimeout(cut)}
+  }catch(e){
+    return {...recordedShowcase,unreachable:true};
+  }
+  if(data.mode==="recorded")return recordedShowcase;
+  const honor=data.lease?.authorizations?.[0]?.honor_until;
+  if(honor&&Date.parse(honor)<Date.now())return {...data,ended:true};
+  return data;
 }
 function enterShowcase(){
   if(S.user?.showcase)return;
   stopRun();
-  S.user={name:"Showcase lease",live:true,showcase:true};
+  S.user={name:"Demo lease",live:true,showcase:true};
   S.liveReady=false; S.liveSig=""; S.liveErr=""; S.showcase=null; S.showcaseMessage="";
   S.status="active"; S.calls=[]; S.log=[]; S.refused=0; S.settles=[]; S.voided=null; S.ui.sel=null;
 }
@@ -504,7 +517,7 @@ async function liveLoad(){
       for(const row of S.showcase.calls){
         const t=when(row.created_at), amount=Number(row.price_minor);
         if(row.status==="served")calls.push({id:calls.length+1,tool:row.tool_id,c:amount,st:row.captured?"captured":"accrued",t,raw:row});
-        log.push({t,m:row.status==="served"?`Committed ${fmt(amount)} for ${row.tool_id}.`:`Refused ${fmt(amount)}: ${row.status}.`});
+        log.push({t,m:row.status==="served"?`Committed ${fmt(amount)} for ${row.tool_id}.`:`Refused ${fmt(amount)}: ${({refused_cap:"above what was free",window_ended:"the hold had ended"})[row.status]||row.status}.`});
       }
     }
     if(lease.state!=="active")log.push({t:"",m:`Lease state is ${lease.state}.`});
@@ -541,7 +554,7 @@ function renderNav(r){
 }
 function leaseTabs(v){
   const item=(k,l,href)=>`<li><a href="${href}"${v===k?' aria-current="page"':""}>${l}</a></li>`;
-  return `<div class="wrap"><nav class="leasetabs" aria-label="This lease"><span class="lt-label"><span class="lt-d">This lease</span><span class="lt-m">${esc(S.user?.showcase?"Showcase lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease":S.user?.name?"Your lease":"Lease")}</span></span><ul>${item("lease","Cord","/lease")}${S.user?.live?"":item("settle","Settle","/settle")}${item("escrow","Escrow","/escrow")}</ul></nav></div>`;
+  return `<div class="wrap"><nav class="leasetabs" aria-label="This lease"><span class="lt-label"><span class="lt-d">This lease</span><span class="lt-m">${esc(S.user?.showcase?"Demo lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease (fixture)":S.user?.name?"Your lease":"Lease")}</span></span><ul>${item("lease","Cord","/lease")}${S.user?.live?"":item("settle","Settle","/settle")}${item("escrow","Escrow","/escrow")}</ul></nav></div>`;
 }
 function slimBlock(){
   const s=sums();
@@ -599,17 +612,23 @@ function paintLead(){
     }
     return;
   }
+  if(S.user?.showcase&&S.showcase?.ended){
+    el.innerHTML=`<h1>The hold has ended.</h1><p class="sub"><span class="msg">You approved ${fmt(CAP)} once. ${fmt(s.F)} was still free when the hold ended. The gateway now refuses every paid call, so nothing more can be spent.</span> ${liveTag()}</p>`;
+    return;
+  }
   el.innerHTML=`<h1><span class="num motion-value">${amount}</span> is free to spend.</h1>
-   <p class="sub"><span class="msg">You approved ${fmt(CAP)} once. <span class="balance-copy">${balance}</span> The gateway refuses any call that would pass the cap.</span> ${liveTag()}</p>`;
+   <p class="sub"><span class="msg">You approved ${fmt(CAP)} once. <span class="balance-copy">${balance}</span> ${S.user?.showcase&&S.showcase?.mode==="recorded"?"This is a saved run, so nothing on this page is live.":"The gateway refuses any call that would pass the cap."}</span> ${liveTag()}</p>`;
 }
 function paintHonor(){
   const el=$("#honor"); if(!el)return;
   // fixture clock: hour 9 of a 72 hour honor period, day 4 opens the reauthorize window (assumed)
   const pct=h=>(h/96*100).toFixed(1)+"%";
-  if(S.user&&S.user.live){el.innerHTML=`<h2>72 hour honor period, then best effort</h2>${trow(`<span class="help">Honored until ${esc(S.liveHonor||"unknown")} UTC.</span>`,liveTag())}`;return}
+  if(S.user&&S.user.live){
+    const ended=S.showcase?.ended, rec=S.showcase?.mode==="recorded";
+    el.innerHTML=`<h2>${rec?"Recorded run":ended?"Honor period ended":"72 hour honor period, then best effort"}</h2>${trow(`<span class="help">${rec?"No live hold is attached to this page.":`${ended?"Ended":"Honored until"} ${esc(S.liveHonor||"unknown")} UTC.`}</span>`,liveTag())}`;return}
   el.innerHTML=`<h2>72 hour honor period, then best effort</h2>
    <div class="rulebar" aria-hidden="true"><i style="left:0;width:${pct(72)}"></i><b style="left:0"></b><b style="left:${pct(72)}"></b><em style="left:${pct(72)};width:${(100-72/96*100).toFixed(1)}%"></em><b style="left:${pct(9)};top:2px;height:25px;width:3px"></b></div>
-   <p class="help">Hour 9 of 72. Day 4 opens a reauthorize window that PayPal says is allowed once. ${tagHtml("fixture","fixture clock")} ${tagHtml("computed","proposal, not verified")}</p>`;
+   <p class="help">Hour 9 of 72. Day 4 would open a reauthorize window. Whether it works is unproven. ${tagHtml("fixture","fixture clock")} ${tagHtml("computed","proposal, not verified")}</p>`;
 }
 // after a void the uncaptured pendants have no cord to hang from, so only captured ones stay drawn
 function itemsForLease(){return S.calls.filter(k=>S.status==="voided"?k.st==="captured":true).slice(0,NSLOT)}
@@ -754,7 +773,15 @@ function paintControls(){
   if(S.user?.showcase){
     const data=S.showcase;
     if(data?.mode==="recorded"){
-      el.innerHTML=`<p>${liveTag()} · Read-only sandbox run. <a href="/proof">Proof</a></p>`;
+      el.innerHTML=`<section class="moment note-state"><div class="mcol"><h2 class="sec">${data.unreachable?"The gateway did not answer":"Showing a recorded run"}</h2>
+        <p>${data.unreachable?"The live demo lease could not be reached from this browser, so this page shows the saved sandbox run from ":"No live demo lease is configured right now. This is the saved sandbox run from "}<span class="num">${esc(data.recorded_on)}</span>. It is read only. ${liveTag()}</p>
+        <p class="help"><a href="/proof">Open the proof page</a> for the PayPal reads behind it.</p></div></section>`;
+      return;
+    }
+    if(data?.ended){
+      el.innerHTML=`<section class="moment note-state"><div class="mcol"><h2 class="sec">This hold has ended</h2>
+        <p>The PayPal honor period for the demo hold ended at <span class="num">${esc(String(data.lease.authorizations[0].honor_until).replace("T"," ").slice(0,16))} UTC</span>. By design the gateway refuses new paid calls after that, so spending is switched off here. The journal below is what the lease did while it was open. ${liveTag()}</p>
+        <p class="help"><a href="/proof">Open the proof page</a> for the PayPal reads behind it.</p></div></section>`;
       return;
     }
     const budget=data?.remaining_calls??0;
@@ -825,6 +852,7 @@ function paintControls(){
 }
 function paintLease(opts){
   setGround();
+  document.body.dataset.ended=S.user?.showcase&&S.showcase?.ended?"1":"";
   if(opts?.refused&&!reduced())S.hold=performance.now()+REFUSE_MS;
   const firstCall=opts?.dropId&&$("#ledger .empty");
   paintLead();
@@ -914,11 +942,19 @@ V.escrow=()=>{
   const judge=(key,label,j)=>`<div class="judge"><h3 id="j${key}">${label}</h3>
     <div class="seg" role="radiogroup" aria-labelledby="j${key}">${VERD.map(([n,v])=>`<button role="radio" tabindex="${j.v===v?0:-1}" aria-checked="${j.v===v}" data-j="${key}" data-v="${v}">${n}</button>`).join("")}</div>
     <div class="scorerow"><label for="sc${key}">Score</label><input type="range" id="sc${key}" data-sc="${key}" min="0" max="100" value="${j.s}"><span class="num" id="scv${key}" style="min-width:2.5ch;text-align:right">${j.s}</span></div></div>`;
-  return `<div class="wrap">${slimBlock()}<div class="two"><div class="title-block">
-    <h1>Two judges propose. The database pays.</h1>
+  const er=proofEvidence.escrow;
+  const recordedRun=`<section class="recorded-run" aria-labelledby="rrh"><h2 class="sec" id="rrh">A recorded escrow run</h2>
+    <p class="help">A ${fmt(er.capture.amount)} job, judged by two providers. The verdicts come from the run report. The capture and payout were read back from PayPal. ${tagHtml("recorded","recorded "+er.date)}</p>
+    <div class="rr-rows">${er.verdicts.map(v=>trow(`<span>Judge ${esc(v.provider)}</span> <span class="num">${esc(v.verdict)} · ${v.score}</span>`,tagHtml("recorded"))).join("")}
+      ${trow(`<span>Kernel decision</span> <strong class="num">${esc(er.decision.status)} ${fmt(er.decision.amount)}</strong>`,tagHtml("computed"))}
+      ${trow(`<span>Capture ${esc(er.capture.status)}</span> <span class="num">${fmt(er.capture.amount)} \u00b7 fee ${fmt(er.capture.fee)}</span>`,tagHtml("measured"))}
+      ${trow(`<span>Payout ${esc(er.payout.status)}</span> <strong class="num">${fmt(er.payout.amount)}</strong>`,tagHtml("measured"))}</div>
+    <p class="help">The hosted site does not run escrow jobs yet. This is the saved run. <a href="/proof">The PayPal reads behind it</a> are on the evidence page.</p></section>`;
+  return `<div class="wrap">${slimBlock()}${recordedRun}<div class="two"><div class="title-block">
+    <h2 class="sec">Try the rule</h2><h1 class="try-h">Two judges propose. The database pays.</h1>
     <p class="sub">The buyer set the rubric before the job began. A judge may only answer with a verdict from a fixed list and a score. No model ever writes an amount.</p>
     ${judge("a","Judge A, provider one",a)}${judge("b","Judge B, provider two",b)}
-    <p class="help" style="margin-top:16px">${tagHtml("fixture")} The job, the verdicts and the $2.50 escrow are sample data. The mapping below is real logic from the kernel's rule, run in your browser.</p>
+    <p class="help" style="margin-top:16px">${tagHtml("fixture","sample job")} ${tagHtml("computed","real rule")} The $2.50 job and both verdicts are sample data you can move. The mapping is the kernel's rule, run in your browser.</p>
   </div><div id="escOut"><div class="ply-out"></div><div class="kernel"></div></div></div></div>`;
 };
 function plySVG(tw,pay){
@@ -1166,7 +1202,7 @@ V.proof=()=>{
 /* =============================================================
    Site: landing, sign up, log in, and the chrome around them
 ============================================================= */
-const BRAND_HTML=`<a class="brand" href="/lease" aria-label="Pashadhara, lease"><svg class="mark" viewBox="0 0 80 80" aria-hidden="true"><path d="M40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 L44.3 29.2 L45.0 29.3 L45.7 29.4 L46.4 29.5 L47.1 29.7 L47.8 29.8 L48.5 29.9 L49.2 30.1 L49.9 30.3 L50.6 30.5 L51.2 30.7 L51.9 30.9 L52.6 31.1 L53.2 31.3 L53.8 31.6 L54.5 31.8 L55.1 32.1 L55.7 32.4 L56.3 32.7 L56.9 33.0 L57.5 33.3 L58.1 33.6 L58.7 33.9 L59.2 34.3 L59.8 34.6 L60.3 35.0 L60.8 35.3 L61.3 35.7 L61.8 36.1 L62.3 36.5 L62.8 36.9 L63.3 37.3 L63.7 37.7 L64.1 38.1 L64.6 38.5 L65.0 39.0 L65.3 39.4 L65.7 39.8 L66.1 40.3 L66.4 40.7 L66.8 41.2 L67.1 41.6 L67.4 42.1 L67.7 42.6 L67.9 43.0 L68.2 43.5 L68.4 44.0 L68.7 44.4 L68.9 44.9 L69.1 45.4 L69.2 45.9 L69.4 46.4 L69.5 46.8 L69.7 47.3 L69.8 47.8 L69.9 48.3 L69.9 48.7 L70.0 49.2 L70.1 49.7 L70.1 50.1 L70.1 50.6 L70.1 51.0 L70.1 51.5 L70.0 51.9 L70.0 52.4 L69.9 52.8 L69.8 53.3 L69.7 53.7 L69.6 54.1 L69.5 54.5 L69.3 54.9 L69.2 55.3 L69.0 55.7 L68.8 56.1 L68.6 56.5 L68.4 56.9 L68.1 57.2 L67.9 57.6 L67.6 57.9 L67.3 58.3 L67.0 58.6 L66.7 58.9 L66.4 59.2 L66.1 59.5 L65.7 59.8 L65.4 60.0 L65.0 60.3 L64.6 60.5 L64.2 60.8 L63.8 61.0 L63.4 61.2 L63.0 61.4 L62.5 61.6 L62.1 61.7 L61.6 61.9 L61.2 62.0 L60.7 62.2 L60.2 62.3 L59.7 62.4 L59.2 62.5 L58.7 62.5 L58.2 62.6 L57.7 62.6 L57.1 62.7 L56.6 62.7 L56.1 62.7 L55.5 62.7 L55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 L28.5 41.7 L28.2 41.0 L28.0 40.3 L27.7 39.7 L27.5 39.0 L27.2 38.3 L27.0 37.7 L26.8 37.0 L26.6 36.3 L26.5 35.6 L26.3 34.9 L26.1 34.3 L26.0 33.6 L25.9 32.9 L25.8 32.2 L25.7 31.5 L25.6 30.9 L25.5 30.2 L25.5 29.5 L25.4 28.9 L25.4 28.2 L25.4 27.5 L25.4 26.9 L25.4 26.2 L25.4 25.6 L25.5 24.9 L25.5 24.3 L25.6 23.7 L25.7 23.1 L25.8 22.4 L25.9 21.8 L26.0 21.2 L26.1 20.6 L26.3 20.0 L26.4 19.5 L26.6 18.9 L26.8 18.4 L27.0 17.8 L27.2 17.3 L27.4 16.7 L27.6 16.2 L27.9 15.7 L28.1 15.2 L28.4 14.7 L28.7 14.3 L28.9 13.8 L29.2 13.4 L29.5 13.0 L29.8 12.5 L30.1 12.1 L30.5 11.7 L30.8 11.4 L31.1 11.0 L31.5 10.7 L31.8 10.3 L32.2 10.0 L32.6 9.7 L33.0 9.4 L33.3 9.1 L33.7 8.9 L34.1 8.6 L34.5 8.4 L34.9 8.2 L35.3 8.0 L35.7 7.8 L36.2 7.7 L36.6 7.5 L37.0 7.4 L37.4 7.3 L37.8 7.2 L38.3 7.1 L38.7 7.1 L39.1 7.0 L39.6 7.0 L40.0 7.0 L40.4 7.0 L40.9 7.0 L41.3 7.1 L41.7 7.1 L42.2 7.2 L42.6 7.3 L43.0 7.4 L43.4 7.5 L43.8 7.7 L44.3 7.8 L44.7 8.0 L45.1 8.2 L45.5 8.4 L45.9 8.6 L46.3 8.9 L46.7 9.1 L47.0 9.4 L47.4 9.7 L47.8 10.0 L48.2 10.3 L48.5 10.7 L48.9 11.0 L49.2 11.4 L49.5 11.7 L49.9 12.1 L50.2 12.5 L50.5 13.0 L50.8 13.4 L51.1 13.8 L51.3 14.3 L51.6 14.7 L51.9 15.2 L52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 L47.2 49.1 L46.7 49.7 L46.3 50.2 L45.9 50.8 L45.4 51.3 L44.9 51.9 L44.5 52.4 L44.0 52.9 L43.5 53.4 L43.0 53.9 L42.5 54.4 L42.0 54.9 L41.4 55.3 L40.9 55.8 L40.4 56.2 L39.8 56.6 L39.3 57.0 L38.7 57.4 L38.2 57.8 L37.6 58.2 L37.1 58.5 L36.5 58.9 L35.9 59.2 L35.4 59.5 L34.8 59.8 L34.2 60.1 L33.6 60.4 L33.1 60.6 L32.5 60.9 L31.9 61.1 L31.3 61.3 L30.7 61.5 L30.2 61.7 L29.6 61.8 L29.0 62.0 L28.4 62.1 L27.9 62.3 L27.3 62.4 L26.7 62.5 L26.2 62.5 L25.6 62.6 L25.0 62.6 L24.5 62.7 L23.9 62.7 L23.4 62.7 L22.9 62.7 L22.3 62.6 L21.8 62.6 L21.3 62.5 L20.8 62.5 L20.3 62.4 L19.8 62.3 L19.3 62.2 L18.8 62.0 L18.4 61.9 L17.9 61.7 L17.5 61.6 L17.0 61.4 L16.6 61.2 L16.2 61.0 L15.8 60.8 L15.4 60.5 L15.0 60.3 L14.6 60.0 L14.3 59.8 L13.9 59.5 L13.6 59.2 L13.3 58.9 L13.0 58.6 L12.7 58.3 L12.4 57.9 L12.1 57.6 L11.9 57.2 L11.6 56.9 L11.4 56.5 L11.2 56.1 L11.0 55.7 L10.8 55.3 L10.7 54.9 L10.5 54.5 L10.4 54.1 L10.3 53.7 L10.2 53.3 L10.1 52.8 L10.0 52.4 L10.0 51.9 L9.9 51.5 L9.9 51.0 L9.9 50.6 L9.9 50.1 L9.9 49.7 L10.0 49.2 L10.1 48.7 L10.1 48.3 L10.2 47.8 L10.3 47.3 L10.5 46.8 L10.6 46.4 L10.8 45.9 L10.9 45.4 L11.1 44.9 L11.3 44.4 L11.6 44.0 L11.8 43.5 L12.1 43.0 L12.3 42.6 L12.6 42.1 L12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 L44.3 29.2 L45.0 29.3 L45.7 29.4 L46.4 29.5 L47.1 29.7 L47.8 29.8 L48.5 29.9 L49.2 30.1 L49.9 30.3 L50.6 30.5 L51.2 30.7 L51.9 30.9 L52.6 31.1 L53.2 31.3 L53.8 31.6 L54.5 31.8 L55.1 32.1 L55.7 32.4 L56.3 32.7 L56.9 33.0 L57.5 33.3 L58.1 33.6 L58.7 33.9 L59.2 34.3 L59.8 34.6 L60.3 35.0 L60.8 35.3 L61.3 35.7 L61.8 36.1 L62.3 36.5 L62.8 36.9 L63.3 37.3 L63.7 37.7 L64.1 38.1 L64.6 38.5 L65.0 39.0 L65.3 39.4 L65.7 39.8 L66.1 40.3 L66.4 40.7 L66.8 41.2 L67.1 41.6 L67.4 42.1 L67.7 42.6 L67.9 43.0 L68.2 43.5 L68.4 44.0 L68.7 44.4 L68.9 44.9 L69.1 45.4 L69.2 45.9 L69.4 46.4 L69.5 46.8 L69.7 47.3 L69.8 47.8 L69.9 48.3 L69.9 48.7 L70.0 49.2 L70.1 49.7 L70.1 50.1 L70.1 50.6 L70.1 51.0 L70.1 51.5 L70.0 51.9 L70.0 52.4 L69.9 52.8 L69.8 53.3 L69.7 53.7 L69.6 54.1 L69.5 54.5 L69.3 54.9 L69.2 55.3 L69.0 55.7 L68.8 56.1 L68.6 56.5 L68.4 56.9 L68.1 57.2 L67.9 57.6 L67.6 57.9 L67.3 58.3 L67.0 58.6 L66.7 58.9 L66.4 59.2 L66.1 59.5 L65.7 59.8 L65.4 60.0 L65.0 60.3 L64.6 60.5 L64.2 60.8 L63.8 61.0 L63.4 61.2 L63.0 61.4 L62.5 61.6 L62.1 61.7 L61.6 61.9 L61.2 62.0 L60.7 62.2 L60.2 62.3 L59.7 62.4 L59.2 62.5 L58.7 62.5 L58.2 62.6 L57.7 62.6 L57.1 62.7 L56.6 62.7 L56.1 62.7 L55.5 62.7 L55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 L28.5 41.7 L28.2 41.0 L28.0 40.3 L27.7 39.7 L27.5 39.0 L27.2 38.3 L27.0 37.7 L26.8 37.0 L26.6 36.3 L26.5 35.6 L26.3 34.9 L26.1 34.3 L26.0 33.6 L25.9 32.9 L25.8 32.2 L25.7 31.5 L25.6 30.9 L25.5 30.2 L25.5 29.5 L25.4 28.9 L25.4 28.2 L25.4 27.5 L25.4 26.9 L25.4 26.2 L25.4 25.6 L25.5 24.9 L25.5 24.3 L25.6 23.7 L25.7 23.1 L25.8 22.4 L25.9 21.8 L26.0 21.2 L26.1 20.6 L26.3 20.0 L26.4 19.5 L26.6 18.9 L26.8 18.4 L27.0 17.8 L27.2 17.3 L27.4 16.7 L27.6 16.2 L27.9 15.7 L28.1 15.2 L28.4 14.7 L28.7 14.3 L28.9 13.8 L29.2 13.4 L29.5 13.0 L29.8 12.5 L30.1 12.1 L30.5 11.7 L30.8 11.4 L31.1 11.0 L31.5 10.7 L31.8 10.3 L32.2 10.0 L32.6 9.7 L33.0 9.4 L33.3 9.1 L33.7 8.9 L34.1 8.6 L34.5 8.4 L34.9 8.2 L35.3 8.0 L35.7 7.8 L36.2 7.7 L36.6 7.5 L37.0 7.4 L37.4 7.3 L37.8 7.2 L38.3 7.1 L38.7 7.1 L39.1 7.0 L39.6 7.0 L40.0 7.0 " fill="none" stroke="#4a423a" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M40.0 7.0 L40.4 7.0 L40.9 7.0 L41.3 7.1 L41.7 7.1 L42.2 7.2 L42.6 7.3 L43.0 7.4 L43.4 7.5 L43.8 7.7 L44.3 7.8 L44.7 8.0 L45.1 8.2 L45.5 8.4 L45.9 8.6 L46.3 8.9 L46.7 9.1 L47.0 9.4 L47.4 9.7 L47.8 10.0 L48.2 10.3 L48.5 10.7 L48.9 11.0 L49.2 11.4 L49.5 11.7 L49.9 12.1 L50.2 12.5 L50.5 13.0 L50.8 13.4 L51.1 13.8 L51.3 14.3 L51.6 14.7 L51.9 15.2 L52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 L47.2 49.1 L46.7 49.7 L46.3 50.2 L45.9 50.8 L45.4 51.3 L44.9 51.9 L44.5 52.4 L44.0 52.9 L43.5 53.4 L43.0 53.9 L42.5 54.4 L42.0 54.9 L41.4 55.3 L40.9 55.8 L40.4 56.2 L39.8 56.6 L39.3 57.0 L38.7 57.4 L38.2 57.8 L37.6 58.2 L37.1 58.5 L36.5 58.9 L35.9 59.2 L35.4 59.5 L34.8 59.8 L34.2 60.1 L33.6 60.4 L33.1 60.6 L32.5 60.9 L31.9 61.1 L31.3 61.3 L30.7 61.5 L30.2 61.7 L29.6 61.8 L29.0 62.0 L28.4 62.1 L27.9 62.3 L27.3 62.4 L26.7 62.5 L26.2 62.5 L25.6 62.6 L25.0 62.6 L24.5 62.7 L23.9 62.7 L23.4 62.7 L22.9 62.7 L22.3 62.6 L21.8 62.6 L21.3 62.5 L20.8 62.5 L20.3 62.4 L19.8 62.3 L19.3 62.2 L18.8 62.0 L18.4 61.9 L17.9 61.7 L17.5 61.6 L17.0 61.4 L16.6 61.2 L16.2 61.0 L15.8 60.8 L15.4 60.5 L15.0 60.3 L14.6 60.0 L14.3 59.8 L13.9 59.5 L13.6 59.2 L13.3 58.9 L13.0 58.6 L12.7 58.3 L12.4 57.9 L12.1 57.6 L11.9 57.2 L11.6 56.9 L11.4 56.5 L11.2 56.1 L11.0 55.7 L10.8 55.3 L10.7 54.9 L10.5 54.5 L10.4 54.1 L10.3 53.7 L10.2 53.3 L10.1 52.8 L10.0 52.4 L10.0 51.9 L9.9 51.5 L9.9 51.0 L9.9 50.6 L9.9 50.1 L9.9 49.7 L10.0 49.2 L10.1 48.7 L10.1 48.3 L10.2 47.8 L10.3 47.3 L10.5 46.8 L10.6 46.4 L10.8 45.9 L10.9 45.4 L11.1 44.9 L11.3 44.4 L11.6 44.0 L11.8 43.5 L12.1 43.0 L12.3 42.6 L12.6 42.1 L12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 " fill="none" stroke="#8C1D38" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 " fill="none" stroke="#D5D8CE" stroke-width="19" stroke-linecap="butt"/><path d="M55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 " fill="none" stroke="#4a423a" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 " fill="none" stroke="#D5D8CE" stroke-width="19" stroke-linecap="butt"/><path d="M52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 " fill="none" stroke="#8C1D38" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 " fill="none" stroke="#D5D8CE" stroke-width="19" stroke-linecap="butt"/><path d="M12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 " fill="none" stroke="#8C1D38" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="stack"><span class="word" aria-hidden="true">PAS<i class="hh a"><b></b></i>AD<i class="hh b"><b></b></i>ARA</span><small>A budget for your agent, held by PayPal</small></span></a>`;
+const BRAND_HTML=`<a class="brand" href="/lease" aria-label="Pashadhara, lease"><svg class="mark" viewBox="0 0 80 80" aria-hidden="true"><path d="M40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 L44.3 29.2 L45.0 29.3 L45.7 29.4 L46.4 29.5 L47.1 29.7 L47.8 29.8 L48.5 29.9 L49.2 30.1 L49.9 30.3 L50.6 30.5 L51.2 30.7 L51.9 30.9 L52.6 31.1 L53.2 31.3 L53.8 31.6 L54.5 31.8 L55.1 32.1 L55.7 32.4 L56.3 32.7 L56.9 33.0 L57.5 33.3 L58.1 33.6 L58.7 33.9 L59.2 34.3 L59.8 34.6 L60.3 35.0 L60.8 35.3 L61.3 35.7 L61.8 36.1 L62.3 36.5 L62.8 36.9 L63.3 37.3 L63.7 37.7 L64.1 38.1 L64.6 38.5 L65.0 39.0 L65.3 39.4 L65.7 39.8 L66.1 40.3 L66.4 40.7 L66.8 41.2 L67.1 41.6 L67.4 42.1 L67.7 42.6 L67.9 43.0 L68.2 43.5 L68.4 44.0 L68.7 44.4 L68.9 44.9 L69.1 45.4 L69.2 45.9 L69.4 46.4 L69.5 46.8 L69.7 47.3 L69.8 47.8 L69.9 48.3 L69.9 48.7 L70.0 49.2 L70.1 49.7 L70.1 50.1 L70.1 50.6 L70.1 51.0 L70.1 51.5 L70.0 51.9 L70.0 52.4 L69.9 52.8 L69.8 53.3 L69.7 53.7 L69.6 54.1 L69.5 54.5 L69.3 54.9 L69.2 55.3 L69.0 55.7 L68.8 56.1 L68.6 56.5 L68.4 56.9 L68.1 57.2 L67.9 57.6 L67.6 57.9 L67.3 58.3 L67.0 58.6 L66.7 58.9 L66.4 59.2 L66.1 59.5 L65.7 59.8 L65.4 60.0 L65.0 60.3 L64.6 60.5 L64.2 60.8 L63.8 61.0 L63.4 61.2 L63.0 61.4 L62.5 61.6 L62.1 61.7 L61.6 61.9 L61.2 62.0 L60.7 62.2 L60.2 62.3 L59.7 62.4 L59.2 62.5 L58.7 62.5 L58.2 62.6 L57.7 62.6 L57.1 62.7 L56.6 62.7 L56.1 62.7 L55.5 62.7 L55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 L28.5 41.7 L28.2 41.0 L28.0 40.3 L27.7 39.7 L27.5 39.0 L27.2 38.3 L27.0 37.7 L26.8 37.0 L26.6 36.3 L26.5 35.6 L26.3 34.9 L26.1 34.3 L26.0 33.6 L25.9 32.9 L25.8 32.2 L25.7 31.5 L25.6 30.9 L25.5 30.2 L25.5 29.5 L25.4 28.9 L25.4 28.2 L25.4 27.5 L25.4 26.9 L25.4 26.2 L25.4 25.6 L25.5 24.9 L25.5 24.3 L25.6 23.7 L25.7 23.1 L25.8 22.4 L25.9 21.8 L26.0 21.2 L26.1 20.6 L26.3 20.0 L26.4 19.5 L26.6 18.9 L26.8 18.4 L27.0 17.8 L27.2 17.3 L27.4 16.7 L27.6 16.2 L27.9 15.7 L28.1 15.2 L28.4 14.7 L28.7 14.3 L28.9 13.8 L29.2 13.4 L29.5 13.0 L29.8 12.5 L30.1 12.1 L30.5 11.7 L30.8 11.4 L31.1 11.0 L31.5 10.7 L31.8 10.3 L32.2 10.0 L32.6 9.7 L33.0 9.4 L33.3 9.1 L33.7 8.9 L34.1 8.6 L34.5 8.4 L34.9 8.2 L35.3 8.0 L35.7 7.8 L36.2 7.7 L36.6 7.5 L37.0 7.4 L37.4 7.3 L37.8 7.2 L38.3 7.1 L38.7 7.1 L39.1 7.0 L39.6 7.0 L40.0 7.0 L40.4 7.0 L40.9 7.0 L41.3 7.1 L41.7 7.1 L42.2 7.2 L42.6 7.3 L43.0 7.4 L43.4 7.5 L43.8 7.7 L44.3 7.8 L44.7 8.0 L45.1 8.2 L45.5 8.4 L45.9 8.6 L46.3 8.9 L46.7 9.1 L47.0 9.4 L47.4 9.7 L47.8 10.0 L48.2 10.3 L48.5 10.7 L48.9 11.0 L49.2 11.4 L49.5 11.7 L49.9 12.1 L50.2 12.5 L50.5 13.0 L50.8 13.4 L51.1 13.8 L51.3 14.3 L51.6 14.7 L51.9 15.2 L52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 L47.2 49.1 L46.7 49.7 L46.3 50.2 L45.9 50.8 L45.4 51.3 L44.9 51.9 L44.5 52.4 L44.0 52.9 L43.5 53.4 L43.0 53.9 L42.5 54.4 L42.0 54.9 L41.4 55.3 L40.9 55.8 L40.4 56.2 L39.8 56.6 L39.3 57.0 L38.7 57.4 L38.2 57.8 L37.6 58.2 L37.1 58.5 L36.5 58.9 L35.9 59.2 L35.4 59.5 L34.8 59.8 L34.2 60.1 L33.6 60.4 L33.1 60.6 L32.5 60.9 L31.9 61.1 L31.3 61.3 L30.7 61.5 L30.2 61.7 L29.6 61.8 L29.0 62.0 L28.4 62.1 L27.9 62.3 L27.3 62.4 L26.7 62.5 L26.2 62.5 L25.6 62.6 L25.0 62.6 L24.5 62.7 L23.9 62.7 L23.4 62.7 L22.9 62.7 L22.3 62.6 L21.8 62.6 L21.3 62.5 L20.8 62.5 L20.3 62.4 L19.8 62.3 L19.3 62.2 L18.8 62.0 L18.4 61.9 L17.9 61.7 L17.5 61.6 L17.0 61.4 L16.6 61.2 L16.2 61.0 L15.8 60.8 L15.4 60.5 L15.0 60.3 L14.6 60.0 L14.3 59.8 L13.9 59.5 L13.6 59.2 L13.3 58.9 L13.0 58.6 L12.7 58.3 L12.4 57.9 L12.1 57.6 L11.9 57.2 L11.6 56.9 L11.4 56.5 L11.2 56.1 L11.0 55.7 L10.8 55.3 L10.7 54.9 L10.5 54.5 L10.4 54.1 L10.3 53.7 L10.2 53.3 L10.1 52.8 L10.0 52.4 L10.0 51.9 L9.9 51.5 L9.9 51.0 L9.9 50.6 L9.9 50.1 L9.9 49.7 L10.0 49.2 L10.1 48.7 L10.1 48.3 L10.2 47.8 L10.3 47.3 L10.5 46.8 L10.6 46.4 L10.8 45.9 L10.9 45.4 L11.1 44.9 L11.3 44.4 L11.6 44.0 L11.8 43.5 L12.1 43.0 L12.3 42.6 L12.6 42.1 L12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 L44.3 29.2 L45.0 29.3 L45.7 29.4 L46.4 29.5 L47.1 29.7 L47.8 29.8 L48.5 29.9 L49.2 30.1 L49.9 30.3 L50.6 30.5 L51.2 30.7 L51.9 30.9 L52.6 31.1 L53.2 31.3 L53.8 31.6 L54.5 31.8 L55.1 32.1 L55.7 32.4 L56.3 32.7 L56.9 33.0 L57.5 33.3 L58.1 33.6 L58.7 33.9 L59.2 34.3 L59.8 34.6 L60.3 35.0 L60.8 35.3 L61.3 35.7 L61.8 36.1 L62.3 36.5 L62.8 36.9 L63.3 37.3 L63.7 37.7 L64.1 38.1 L64.6 38.5 L65.0 39.0 L65.3 39.4 L65.7 39.8 L66.1 40.3 L66.4 40.7 L66.8 41.2 L67.1 41.6 L67.4 42.1 L67.7 42.6 L67.9 43.0 L68.2 43.5 L68.4 44.0 L68.7 44.4 L68.9 44.9 L69.1 45.4 L69.2 45.9 L69.4 46.4 L69.5 46.8 L69.7 47.3 L69.8 47.8 L69.9 48.3 L69.9 48.7 L70.0 49.2 L70.1 49.7 L70.1 50.1 L70.1 50.6 L70.1 51.0 L70.1 51.5 L70.0 51.9 L70.0 52.4 L69.9 52.8 L69.8 53.3 L69.7 53.7 L69.6 54.1 L69.5 54.5 L69.3 54.9 L69.2 55.3 L69.0 55.7 L68.8 56.1 L68.6 56.5 L68.4 56.9 L68.1 57.2 L67.9 57.6 L67.6 57.9 L67.3 58.3 L67.0 58.6 L66.7 58.9 L66.4 59.2 L66.1 59.5 L65.7 59.8 L65.4 60.0 L65.0 60.3 L64.6 60.5 L64.2 60.8 L63.8 61.0 L63.4 61.2 L63.0 61.4 L62.5 61.6 L62.1 61.7 L61.6 61.9 L61.2 62.0 L60.7 62.2 L60.2 62.3 L59.7 62.4 L59.2 62.5 L58.7 62.5 L58.2 62.6 L57.7 62.6 L57.1 62.7 L56.6 62.7 L56.1 62.7 L55.5 62.7 L55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 L28.5 41.7 L28.2 41.0 L28.0 40.3 L27.7 39.7 L27.5 39.0 L27.2 38.3 L27.0 37.7 L26.8 37.0 L26.6 36.3 L26.5 35.6 L26.3 34.9 L26.1 34.3 L26.0 33.6 L25.9 32.9 L25.8 32.2 L25.7 31.5 L25.6 30.9 L25.5 30.2 L25.5 29.5 L25.4 28.9 L25.4 28.2 L25.4 27.5 L25.4 26.9 L25.4 26.2 L25.4 25.6 L25.5 24.9 L25.5 24.3 L25.6 23.7 L25.7 23.1 L25.8 22.4 L25.9 21.8 L26.0 21.2 L26.1 20.6 L26.3 20.0 L26.4 19.5 L26.6 18.9 L26.8 18.4 L27.0 17.8 L27.2 17.3 L27.4 16.7 L27.6 16.2 L27.9 15.7 L28.1 15.2 L28.4 14.7 L28.7 14.3 L28.9 13.8 L29.2 13.4 L29.5 13.0 L29.8 12.5 L30.1 12.1 L30.5 11.7 L30.8 11.4 L31.1 11.0 L31.5 10.7 L31.8 10.3 L32.2 10.0 L32.6 9.7 L33.0 9.4 L33.3 9.1 L33.7 8.9 L34.1 8.6 L34.5 8.4 L34.9 8.2 L35.3 8.0 L35.7 7.8 L36.2 7.7 L36.6 7.5 L37.0 7.4 L37.4 7.3 L37.8 7.2 L38.3 7.1 L38.7 7.1 L39.1 7.0 L39.6 7.0 L40.0 7.0 " fill="none" stroke="#4a423a" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M40.0 7.0 L40.4 7.0 L40.9 7.0 L41.3 7.1 L41.7 7.1 L42.2 7.2 L42.6 7.3 L43.0 7.4 L43.4 7.5 L43.8 7.7 L44.3 7.8 L44.7 8.0 L45.1 8.2 L45.5 8.4 L45.9 8.6 L46.3 8.9 L46.7 9.1 L47.0 9.4 L47.4 9.7 L47.8 10.0 L48.2 10.3 L48.5 10.7 L48.9 11.0 L49.2 11.4 L49.5 11.7 L49.9 12.1 L50.2 12.5 L50.5 13.0 L50.8 13.4 L51.1 13.8 L51.3 14.3 L51.6 14.7 L51.9 15.2 L52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 L47.2 49.1 L46.7 49.7 L46.3 50.2 L45.9 50.8 L45.4 51.3 L44.9 51.9 L44.5 52.4 L44.0 52.9 L43.5 53.4 L43.0 53.9 L42.5 54.4 L42.0 54.9 L41.4 55.3 L40.9 55.8 L40.4 56.2 L39.8 56.6 L39.3 57.0 L38.7 57.4 L38.2 57.8 L37.6 58.2 L37.1 58.5 L36.5 58.9 L35.9 59.2 L35.4 59.5 L34.8 59.8 L34.2 60.1 L33.6 60.4 L33.1 60.6 L32.5 60.9 L31.9 61.1 L31.3 61.3 L30.7 61.5 L30.2 61.7 L29.6 61.8 L29.0 62.0 L28.4 62.1 L27.9 62.3 L27.3 62.4 L26.7 62.5 L26.2 62.5 L25.6 62.6 L25.0 62.6 L24.5 62.7 L23.9 62.7 L23.4 62.7 L22.9 62.7 L22.3 62.6 L21.8 62.6 L21.3 62.5 L20.8 62.5 L20.3 62.4 L19.8 62.3 L19.3 62.2 L18.8 62.0 L18.4 61.9 L17.9 61.7 L17.5 61.6 L17.0 61.4 L16.6 61.2 L16.2 61.0 L15.8 60.8 L15.4 60.5 L15.0 60.3 L14.6 60.0 L14.3 59.8 L13.9 59.5 L13.6 59.2 L13.3 58.9 L13.0 58.6 L12.7 58.3 L12.4 57.9 L12.1 57.6 L11.9 57.2 L11.6 56.9 L11.4 56.5 L11.2 56.1 L11.0 55.7 L10.8 55.3 L10.7 54.9 L10.5 54.5 L10.4 54.1 L10.3 53.7 L10.2 53.3 L10.1 52.8 L10.0 52.4 L10.0 51.9 L9.9 51.5 L9.9 51.0 L9.9 50.6 L9.9 50.1 L9.9 49.7 L10.0 49.2 L10.1 48.7 L10.1 48.3 L10.2 47.8 L10.3 47.3 L10.5 46.8 L10.6 46.4 L10.8 45.9 L10.9 45.4 L11.1 44.9 L11.3 44.4 L11.6 44.0 L11.8 43.5 L12.1 43.0 L12.3 42.6 L12.6 42.1 L12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 " fill="none" stroke="#8C1D38" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 " fill="none" stroke="#D5D8CE" stroke-width="19" stroke-linecap="butt"/><path d="M55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 " fill="none" stroke="#4a423a" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 " fill="none" stroke="#D5D8CE" stroke-width="19" stroke-linecap="butt"/><path d="M52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 " fill="none" stroke="#8C1D38" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 " fill="none" stroke="#D5D8CE" stroke-width="19" stroke-linecap="butt"/><path d="M12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 " fill="none" stroke="#8C1D38" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="word">Pashadhara</span></a>`;
 const brand=(href,label)=>BRAND_HTML.replace('href="/lease"',`href="${href}"`).replace('aria-label="Pashadhara, lease"',`aria-label="${label}"`);
 const APP_ROUTES=["lease","approve","escrow","settle","proof"];
 const reduced=()=>reduceMotion.matches;
@@ -1194,8 +1230,8 @@ function renderChrome(mode,v){
   if(mode==="site"){
     h.innerHTML=`<div class="bar wrap">${brand("/","Pashadhara, home")}
      <nav aria-label="Primary"><ul>
-      <li><a href="/#how" data-scroll="how">How it works</a></li><li><a href="/#limits" data-scroll="limits">Honest limits</a></li><li><a href="/#faq" data-scroll="faq">FAQ</a></li><li><a href="/proof"${v==="proof"?' aria-current="page"':""}>Proof</a></li></ul></nav>
-     <div class="acts">${S.user?`<a class="btn fill sm" href="/lease">Open lease</a>`:`<a class="nav-login" href="/login">Log in</a><a class="btn fill sm" href="/signup">Get started</a>`}</div></div>`;
+      <li><a href="/#how" data-scroll="how">How it works</a></li><li><a href="/#limits" data-scroll="limits">Limits</a></li><li><a href="/#connect" data-scroll="connect">Connect</a></li><li><a href="/proof"${v==="proof"?' aria-current="page"':""}>Proof</a></li></ul></nav>
+     <div class="acts"><a class="btn fill sm" href="/lease?showcase=1">Open the live demo</a></div></div>`;
   }else if(mode==="flow"){
     const {step,mode:flowMode}=S.su, login=flowMode==="login", total=login?2:6;
     const progress=$(".pcord",h), label=`Step ${step} of ${total}`;
@@ -1220,20 +1256,20 @@ function renderChrome(mode,v){
       <div class="acts"><a class="nav-login" href="/">Exit</a></div></div>`;
   }else{
     h.innerHTML=`<div class="bar wrap">${brand("/lease","Pashadhara, lease")}<nav aria-label="Primary"><ul id="nav"></ul></nav>
-      <div class="acts"><span class="who">${esc(S.user?.showcase?"Showcase lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease":S.user?.name||"")}</span><button class="link-btn so" data-act="theme" aria-pressed="${darkView()}">${darkView()?"Light view":"Dark view"}</button><button class="link-btn so" data-act="signout">Sign out</button><a class="btn fill sm" id="newlease" href="/approve">New lease</a></div></div>`;
+      <div class="acts"><span class="who">${esc(S.user?.showcase?"Demo lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease (fixture)":S.user?.name||"")}</span><button class="link-btn so" data-act="theme" aria-pressed="${darkView()}">${darkView()?"Light view":"Dark view"}</button>${S.user?.showcase?`<a class="link-btn so" id="newlease" href="/">About</a>`:`<button class="link-btn so" data-act="signout">Sign out</button><a class="btn fill sm" id="newlease" href="/approve">New lease</a>`}</div></div>`;
     renderNav(v);
   }
   renderFooter(mode);
 }
-function legend(){return `<p><span class="tag measured">measured</span> came back from a PayPal sandbox call. <span class="tag computed">computed</span> was derived by our code or verified in a test. <span class="tag documented">documented</span> is what PayPal's docs say and we have not tested. <span class="tag recorded">recorded</span> is a saved result from a real sandbox run. <span class="tag fixture">fixture</span> is sample data for this prototype. Nothing on this page is live money, and nothing simulated is PayPal output.</p>`}
+function legend(){return `<h3>How every number is labelled</h3><dl class="lg"><div><dt><span class="tag measured">measured</span></dt><dd>came back from a PayPal sandbox call</dd></div><div><dt><span class="tag computed">computed</span></dt><dd>derived by our code, or checked in a test. A live journal is computed from our own ledger</dd></div><div><dt><span class="tag documented">documented</span></dt><dd>what PayPal's docs say, not tested by us</dd></div><div><dt><span class="tag recorded">recorded</span></dt><dd>a saved result from a real sandbox run, with its date</dd></div><div><dt><span class="tag fixture">fixture</span></dt><dd>sample data. Never PayPal output</dd></div></dl><p class="help">Sandbox only. No real money moves.</p>`}
 function renderFooter(mode){
   const f=$("#ftr");
   if(mode==="flow"){f.innerHTML="";f.hidden=true;return}
   f.hidden=false;
   if(mode==="app"){f.innerHTML=`<div class="wrap">${legend()}</div>`;return}
   f.innerHTML=`<div class="wrap"><div class="cols"><div>${legend()}</div>
-   <div><h3>Product</h3><ul><li><a href="/signup">Get started</a></li><li><a href="/login">Log in</a></li><li><a href="/" data-act="sample">Explore a sample lease</a></li><li><a href="/proof">See the recorded proof</a></li></ul></div>
-   <div><h3>Read</h3><ul><li><a href="/#why" data-scroll="why">Why it exists</a></li><li><a href="/#limits" data-scroll="limits">What it cannot promise</a></li><li><a href="/#sources" data-scroll="sources">Sources</a></li></ul></div></div></div>`;
+   <div><h3>Product</h3><ul><li><a href="/lease?showcase=1">Open the live demo</a></li><li><a href="/proof">PayPal proof</a></li><li><a href="/" data-act="sample">Sample lease (fixture)</a></li></ul></div>
+   <div><h3>Read</h3><ul><li><a href="/#how" data-scroll="how">How it works</a></li><li><a href="/#limits" data-scroll="limits">What it cannot promise</a></li><li><a href="/#connect" data-scroll="connect">Connect an agent</a></li></ul></div></div></div>`;
 }
 
 /* ---------- landing ---------- */
@@ -1351,21 +1387,35 @@ const FAQ=[
  ["Is this live?","The showcase can run real agent calls against a PayPal sandbox lease while demo capacity is available. When no showcase lease is configured, the showcase shows a dated recording. The sample lease uses fixture data. All PayPal activity uses sandbox funds.",`Run the agent uses the gateway path that checks and commits the call price. ${faqTestTag}`]
 ];
 V.home=()=>`
-<section class="hero"><div class="wrap">
-  <div class="herotop">
-    <h1>Give your agent a budget it cannot break.</h1>
-    <div class="side">
-      <p class="lede">One PayPal hold becomes a spending limit that lives outside the model. Approve once, watch it spend, void whenever you want.</p>
-      <div class="ctas"><a class="btn accent" href="/lease?showcase=1">Open showcase lease</a><a class="btn" href="/signup">Start with a $20 hold</a><a class="tert" href="/" data-act="sample">Explore a sample lease</a></div>
-    </div>
+<section class="hero2"><div class="wrap">
+  <div class="herogrid"><div class="herocopy">
+  <h1 class="h1d">Your agent can spend <span class="num">$20.00</span>.<br>Not <span class="num">$20.01</span>.</h1>
+  <p class="lede2">One PayPal hold becomes a limit enforced by a database, not by the model. You approve once. Every call is checked before it runs, and a call that would pass the limit is refused before any model is called.</p>
+  <div class="ctas"><a class="btn fill" href="/lease?showcase=1">Open the live demo</a><a class="tert" href="/proof">See the PayPal proof</a></div>
   </div>
-  <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><div class="herotools"><button class="link-btn" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause the demo</button><button class="link-btn" data-act="sound" aria-pressed="false">Sound off</button>${KEY_HTML}</div></div>
+  <figure class="receipt-card" aria-labelledby="rcap">
+    <div class="rc-head"><span class="mono">POST /api/showcase/try</span><span>${tagHtml("computed","kernel test")}</span></div>
+    <dl class="rc-rows">
+      <div><dt>Asked</dt><dd class="num">$2.01</dd></div>
+      <div><dt>Free on the lease</dt><dd class="num">$2.00</dd></div>
+      <div class="rc-hit"><dt>Decision</dt><dd><strong>Refused</strong> <span class="mono">cap_reached</span></dd></div>
+      <div><dt>Model called</dt><dd>No</dd></div>
+      <div><dt>Charged</dt><dd class="num">$0.00</dd></div>
+    </dl>
+    <figcaption id="rcap">One cent over the free amount. From the stubbed-provider gateway test on 2026-11-11, not a PayPal result.</figcaption>
+  </figure>
+  </div>
+  <div class="stagedark" role="group" aria-label="The cord, animated with sample amounts">
+    <div class="stagebar"><span class="sb-name">A $20.00 hold, drawn as a cord</span><span class="sb-tag">${tagHtml("fixture","sample amounts")}</span></div>
+    <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><div class="herotools"><button class="link-btn" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause</button><button class="link-btn" data-act="sound" aria-pressed="false">Sound off</button>${KEY_HTML}</div></div>
+    <div class="livestrip" id="homelive" aria-live="polite"><span class="sk" style="width:9rem"></span><span class="sk" style="width:12rem"></span><span class="sk" style="width:7rem"></span></div>
+  </div>
   <p class="sr">An animated lease cord. An agent ties paid calls onto a twenty dollar hold, calls are settled in one capture, and a call that would pass the cap is refused.</p>
 </div></section>
 
 <section class="why sect" id="why"><div class="wrap">
-  <h2 class="big2">Twelve $1.00 captures paid $6.24 in fees. One $12.00 capture would pay about $0.91.</h2>
-  <p class="lede">These come from our own PayPal sandbox log, not from a brochure.</p>
+  <h2 class="big2">Twelve $1.00 captures paid $6.24 in fees. One $12.00 capture would pay an estimated $0.91.</h2>
+  <p class="lede">That is why a hold is settled in few, large captures. These numbers come from our own PayPal sandbox log.</p>
   <div class="receipt">
     <div class="rrow"><span class="what">Fees on twelve $1.00 captures of one authorization</span><span class="val">$6.24</span><span class="tags">${tagHtml("measured")}</span></div>
     <div class="rrow"><span class="what">Fee on one $12.00 capture, from the same fee model</span><span class="val">$0.91</span><span class="tags">${tagHtml("computed")}</span></div>
@@ -1374,20 +1424,8 @@ V.home=()=>`
   <a class="rawlink" href="/proof">See the recorded capture evidence</a>
 </div></section>
 
-<section class="trust" id="trust"><div class="wrap">
-  <p class="stat"><b>72%</b> of US consumers have used an AI assistant to shop. <b>23%</b> trust AI to manage their payments. In a separate six market survey, <b>30%</b> named spending caps a non negotiable.</p>
-  <details class="srcs" id="sources"><summary>Sources and how we read them</summary>
-    <ul>
-      <li><a href="https://enterprisedna.co/resources/news/visa-trust-index-agentic-commerce-consumer-payments-2026/" target="_blank" rel="noopener">Visa Trust Index, via Enterprise DNA</a>. 2,065 US consumers, late May 2026. 72% used an AI assistant for shopping, 23% trust AI to manage their payments. Sponsored by Visa. Fieldwork firm not named.</li>
-      <li><a href="https://www.checkout.com/newsroom/consumer-demand-for-ai-shopping-is-forming-fast-but-trust-for-agentic-commerce-is-still-catching-up" target="_blank" rel="noopener">Checkout.com consumer research</a>. Six markets, a different survey from the Visa one. 30% spending caps, 29% instant revocation, 28% easy cancellation, 27% trust no organization to run an AI shopping agent. The page gives no sample size and its dates disagree, so treat it as directional.</li>
-      <li><a href="https://dev.to/azizanapp/what-regulators-banks-and-consultancies-say-about-controlling-ai-agent-spending-11-documents-1l0g" target="_blank" rel="noopener">A summary of 11 regulator, bank and consultancy documents</a>. A secondary source. It reports that guidance converges on limits outside the model, a check at payment time, escalation above a threshold, and clear accountability. We did not check the original documents.</li>
-      <li>Our own figures come from <span class="mono">evidence/spike2-log.masked.jsonl</span>, a PayPal sandbox run on 2026-11-06 UTC. Each is tagged measured or computed where it appears.</li>
-    </ul>
-  </details>
-</div></section>
-
 <section class="sect" id="how"><div class="wrap">
-  <h2 class="big2">One hold. Five things it does for you.</h2>
+  <h2 class="big2">One hold. Five moves.</h2>
   <div class="how">
     <div><div class="tabs" id="tabs" role="tablist" aria-label="How it works">${HOW.map((h,i)=>`<button role="tab" id="tab${i}" aria-selected="${i===0}" tabindex="${i===0?0:-1}" data-act="how" data-i="${i}" aria-controls="howbody">${h[0]}</button>`).join("")}</div>
       <div class="body" id="howbody" style="margin-top:var(--s6)" role="tabpanel" aria-live="polite" aria-labelledby="tab0"></div></div>
@@ -1413,7 +1451,23 @@ V.home=()=>`
       <li><span>Capture after the honor period is unproven.</span></li>
       <li><span>PayPal timeout handling is unproven end to end.</span></li></ul></div>
   </div>
-  <p class="builtfor">Built for builders shipping an agent that pays, teams that need a stop button, sellers who deliver work, and anyone watching the fee line.</p>
+</div></section>
+
+<section class="sect connect" id="connect"><div class="wrap">
+  <div class="cn-copy">
+    <h2 class="big2">Point an agent at the gateway.</h2>
+    <p class="lede">The gateway is an MCP server over HTTP. The agent authenticates with a lease token, never with your card. Each paid tool call is priced, checked against the hold and written to the journal before the tool runs.</p>
+    <p class="help">The tool today is <span class="mono">summarise</span>, backed by Claude Haiku 5.5, at 3 cents a call. ${datedTag("computed","2026-11-11","· gateway tests")}</p>
+  </div>
+  <pre class="rule snippet" tabindex="0" aria-label="MCP client configuration"><code>{
+  "mcpServers": {
+    "pashadhara": {
+      "type": "http",
+      "url": "https://pashadhara.vercel.app/api/mcp",
+      "headers": { "Authorization": "Bearer &lt;lease token&gt;" }
+    }
+  }
+}</code></pre>
 </div></section>
 
 <section class="sect" id="faq" style="padding-top:var(--s8)"><div class="wrap">
@@ -1423,7 +1477,7 @@ V.home=()=>`
 
 <section class="close"><div class="wrap">
   <h2>Hand your agent a limit, not your card.</h2>
-  <div class="ctas"><a class="btn accent" href="/signup">Start with a $20 hold</a><a class="btn" href="/" data-act="sample">Explore a sample lease</a></div>
+  <div class="ctas"><a class="btn fill" href="/lease?showcase=1">Open the live demo</a><a class="tert" href="/proof">See the PayPal proof</a></div>
   <p class="help" style="margin-top:var(--s5)">Sandbox only. No real money moves.</p>
 </div></section>`;
 function initHome(){
@@ -1436,6 +1490,22 @@ function initHome(){
     heroPlayback();
   });
   HD.observer.observe($("#herocord"));
+  homeLive();
+}
+/* The first screen shows the real demo lease, read now, so a visitor sees that something is live before clicking. */
+async function homeLive(){
+  if(!$("#homelive"))return;
+  const data=await loadShowcase();
+  const el=$("#homelive"); if(!el||route()!=="home")return;
+  const when=iso=>new Date(iso).toUTCString().replace(/^(\w{3}), (\d+) (\w{3}) \d+ (\d\d:\d\d).*/,"$1 $2 $3, $4 UTC");
+  if(data.mode==="recorded"){
+    el.innerHTML=`<span class="ls-dot rec" aria-hidden="true"></span><span class="ls-main">Showing the saved demo run from <span class="num">${esc(data.recorded_on)}</span>.</span><span class="ls-tag">${tagHtml("recorded","recorded "+data.recorded_on)}</span><a class="ls-go" href="/lease?showcase=1">Open it</a>`;
+    return;
+  }
+  const b=data.lease.balances, honor=data.lease.authorizations?.[0]?.honor_until;
+  el.innerHTML=data.ended
+    ?`<span class="ls-dot rec" aria-hidden="true"></span><span class="ls-main">The demo hold ended ${honor?esc(when(honor)):""}. The journal is still readable.</span><span class="ls-tag">${tagHtml("computed","journal, hold ended")}</span><a class="ls-go" href="/lease?showcase=1">Open it</a>`
+    :`<span class="ls-dot live" aria-hidden="true"></span><span class="ls-main"><strong class="num">${fmt(Number(b.hold_available))}</strong> free of <span class="num">${fmt(data.lease.cap_minor)}</span> on the demo lease. ${Number(data.remaining_calls??0)} demo calls left.${honor?` Hold honored until ${esc(when(honor))}.`:""}</span><span class="ls-tag">${tagHtml("computed","live journal")}</span><a class="ls-go" href="/lease?showcase=1">Open it</a>`;
 }
 
 /* ---------- sign up and log in ---------- */
@@ -1711,7 +1781,7 @@ function mount(){
     renderChrome(siteProof?"site":"app",v);
     document.title=({lease:"Lease",approve:"New lease",escrow:"Escrow",settle:"Settle",proof:"Proof"})[v]+" | Pashadhara";
     const waitLive=Boolean(S.user&&S.user.live&&v==="lease"&&!S.liveReady);
-    main.innerHTML=waitLive?`<div class="wrap"><p class="sub" role="status">Reading the live lease.</p></div>`:V[v]();
+    main.innerHTML=waitLive?`<div class="wrap lease-skel" role="status" aria-label="Reading the demo lease"><span class="sk-line sk-h1"></span><span class="sk-line sk-sub"></span><span class="sk-cord"></span><div class="sk-row"><span class="sk-line"></span><span class="sk-line"></span><span class="sk-line"></span></div><span class="sr">Reading the demo lease.</span></div>`:V[v]();
     if(!waitLive&&(v==="lease"||v==="escrow"||v==="settle"))main.insertAdjacentHTML("afterbegin",leaseTabs(v));
     if(waitLive){liveLoad().then(ok=>{if(current!=="lease"||!S.user||!S.user.live)return;if(ok){S.liveReady=true;S.liveChanged=false;mount()}else $("#main").innerHTML=`<div class="wrap"><p class="sub" role="alert">${esc(S.liveErr)}</p></div>`})}
     else if(v==="lease"){
