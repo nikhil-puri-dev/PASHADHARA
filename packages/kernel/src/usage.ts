@@ -15,7 +15,7 @@ export function commitUsage(db: Database, lease: string, usage: ToolUsage | JobU
 
 /** The caller holds the lease lock and owns any nonce validation, commit and rollback. */
 export async function commitUsageInTransaction(
-  tx: PoolClient, leaseId: string, usage: ToolUsage | JobUsage,
+  tx: PoolClient, leaseId: string, usage: ToolUsage | JobUsage, options: { recordRefusal?: boolean } = {},
 ): Promise<UsageResult> {
   const id = usage.kind === 'job' ? usage.job_id ?? randomUUID() : randomUUID();
   let amount: bigint;
@@ -38,6 +38,9 @@ export async function commitUsageInTransaction(
   }
   const { status } = await checkUsage(tx, leaseId, amount, active);
 
+  if (status !== 'served' && options.recordRefusal === false) {
+    return { id: null, status, amount_minor: amount, ledger_group_id: null, replayed: false };
+  }
   if (usage.kind === 'job' && status !== 'served') {
     return { id: null, status, amount_minor: amount, ledger_group_id: null, replayed: false };
   }
@@ -54,10 +57,11 @@ export async function commitUsageInTransaction(
 }
 
 export function previewUsage(db: Database, leaseId: string, amount: bigint) {
-  return db.transaction(leaseId, tx => checkUsage(tx, leaseId, amount, true));
+  // A preview never posts. A snapshot keeps its read coherent without letting public probes block paid calls.
+  return db.transaction(null, tx => checkUsage(tx, leaseId, amount, true), 'repeatable read');
 }
 
-async function checkUsage(tx: Tx, leaseId: string, amount: bigint, active: boolean) {
+export async function checkUsage(tx: Tx, leaseId: string, amount: bigint, active: boolean) {
   if (amount <= 0n) throw new Error('Usage amount must be positive');
 
   const limits = await one<{ state: string; unsettled_limit_minor: string; within_window: boolean; voiding: boolean }>(tx, `select

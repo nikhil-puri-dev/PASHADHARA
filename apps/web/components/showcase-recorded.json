@@ -1,7 +1,7 @@
 {
-  "mode": "recorded",
-  "recorded_on": "2026-11-11",
-  "provenance": "computed",
+  "mode": "fixture",
+  "fixture_on": "2026-11-11",
+  "provenance": "fixture",
   "lease": {
     "cap_minor": 5,
     "state": "active",

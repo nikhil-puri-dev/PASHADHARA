@@ -19,18 +19,19 @@ const esc=s=>String(s).replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",
 const TAG_TIP={measured:"Came back from a PayPal sandbox call",computed:"Derived by our code or verified in a test",documented:"What PayPal's docs say. We have not tested it",fixture:"Sample data for this prototype",recorded:"Recorded from a real sandbox run"};
 const tagHtml=(k,t)=>`<span class="tag ${k}" title="${TAG_TIP[k]||""}">${t||k}</span>`;
 const datedTag=(kind,date,note="")=>`${tagHtml(kind)}${note?" "+note:""} · <span class="tag-date">${date}</span>`;
-const KEY_HTML=`<span class="key" role="group" aria-label="Key"><span><i class="sw gold"></i>captured</span><span><i class="sw owed"></i>owed</span><span><i class="sw free"></i>free to spend</span></span>`;
+const KEY_HTML=`<span class="key" role="group" aria-label="Key"><span><i class="sw gold"></i>captured</span><span><i class="sw owed"></i>committed</span><span><i class="sw free"></i>uncommitted</span></span>`;
+const closedLabel=()=>S.showcase?.mode==="fixture"?"uncommitted in fixture":S.showcase?.ended||S.liveEnded?"uncommitted at last read":"free to spend";
 /* a row: words hard left, tags hard right */
 const trow=(msg,tags,cls="")=>`<div class="trow${cls?" "+cls:""}"><span class="msg">${msg}</span><span class="tags">${tags}</span></div>`;
 const GOLD="#C8A24A";
 const PART_TIP={
   captured:"Captured. These paid calls have been collected from the hold.",
   owed:"Owed. These calls are made and still held, not yet captured.",
-  free:"Free to spend. Held and unspent, up to the cap.",
+  free:"Uncommitted in the journal. Spendability depends on the lease and honor window.",
   "captured-edge":"Where captured length ends and owed length begins.",
   "free-edge":"Where owed length ends and free length begins.",
   cut:"The cut. Length past this point was released.",
-  released:"Released. This length went back to PayPal when the lease was voided."
+   released:"Released in this sample. A real void would ask PayPal to release the remaining hold."
 };
 const LEVEL_NAMES=["Tens","Dollars","Dimes","Cents"];
 
@@ -56,8 +57,8 @@ const S={
       esc:{a:{v:2,s:88},b:{v:1,s:64}}}
 };
 const sums=()=>{
-  if(S.user?.showcase&&S.showcase?.lease.balances){
-    const b=S.showcase.lease.balances;
+  const b=S.user?.showcase?S.showcase?.lease?.balances:S.user?.live?S.privateBalances:null;
+  if(b){
     return {C:b.total_captured,A:b.committed_unsettled,F:b.hold_available,held:b.hold_available+b.committed_unsettled};
   }
   let C=0,A=0;for(const k of S.calls){if(k.st==="captured")C+=k.c;else if(k.st==="accrued")A+=k.c}
@@ -207,7 +208,7 @@ function approveFx(root){
 }
 
 function cordSVG(o,retained){
-  const N=o.N||NSLOT, vertical=!!o.vertical, L=vertical?820:1072, x0=64, y0=62, cap=o.cap||CAP;
+  const N=o.N||NSLOT, vertical=!!o.vertical, L=vertical?(o.compactV?160:820):1072, x0=64, y0=62, cap=o.cap||CAP;
   const ps=o.ps||1, KS=ps<1?5.6:7;      // ps: pendant scale, so a hero cord fits the first screen
   const k=L/cap, z=o.ghost?0:1, wC=o.C*k*z, wA=o.A*k*z, wF=o.F*k*z;
   const scope=o.live||"cord", ply=`url(#${scope}-ply)`, hatch=`url(#${scope}-hatch)`, soft=`url(#${scope}-soft)`;
@@ -448,18 +449,18 @@ const KEY="pashadhara-session";
 /* Live mode: reads one lease from the API with its lease token. Entered with /lease#live=<lease id>.<token>.
    The fragment never reaches a server and is stripped from the address bar at once. */
 const LIVE_KEY="pashadhara-live";
-const liveTag=()=>S.user&&S.user.live?(S.showcase?.mode==="recorded"?tagHtml("recorded","recorded "+S.showcase.recorded_on):tagHtml("computed",S.showcase?.ended?"journal, hold ended":"live journal")):tagHtml("fixture");
+const liveTag=()=>S.user&&S.user.live?(S.showcase?.mode==="fixture"?tagHtml("fixture","saved demo fixture"):tagHtml("computed",S.showcase?.ended||S.liveEnded?"journal, hold ended":"live journal")):tagHtml("fixture");
 function liveTake(){
   const m=/^#live=([0-9a-f-]{36})\.([\w.-]{20,600})$/i.exec(location.hash);
   if(!m)return;
   store.set(LIVE_KEY,JSON.stringify({id:m[1].toLowerCase(),token:m[2]}));
   history.replaceState(null,"",location.pathname==="/"?"/lease":location.pathname);
-  stopRun(); S.user={name:"Live lease",live:true}; S.liveReady=false; S.liveSig=""; S.liveErr="";
+   stopRun(); S.user={name:"Live lease",live:true}; S.privateBalances=null; S.liveEnded=false; S.liveReady=false; S.liveSig=""; S.liveErr="";
   S.status="active"; S.calls=[]; S.log=[]; S.refused=0; S.settles=[]; S.voided=null; S.ui.sel=null;
 }
 /* Never a blank page. If the gateway cannot be reached, the dated recording is shown and says so.
    If the hold's honor period has ended, the live journal is still shown, marked ended, and spending is off. */
-async function loadShowcase(){
+async function fetchShowcase(){
   let data;
   try{
     const abort=new AbortController(), cut=setTimeout(()=>abort.abort(),8000);
@@ -471,16 +472,19 @@ async function loadShowcase(){
   }catch(e){
     return {...recordedShowcase,unreachable:true};
   }
-  if(data.mode==="recorded")return recordedShowcase;
+   if(data.mode==="recorded")return {...recordedShowcase,unreachable:false};
+  const b=data.lease?.balances;
+  if(data.mode!=="live"||!b||!Array.isArray(data.journal?.entries)||!Array.isArray(data.lease.authorizations)||!Array.isArray(data.calls)
+    ||![data.lease.cap_minor,b.hold_available,b.committed_unsettled,b.total_captured].every(v=>Number.isSafeInteger(v)&&v>=0))return {...recordedShowcase,unreachable:true};
   const honor=data.lease?.authorizations?.[0]?.honor_until;
-  if(honor&&Date.parse(honor)<Date.now())return {...data,ended:true};
-  return data;
+  return {...data,read_at:Date.now(),ended:data.lease.state!=="active"||data.lease.guaranteed_now===false||!honor||!Number.isFinite(Date.parse(honor))||Date.parse(honor)<=Date.now()};
 }
+async function loadShowcase(){const d=await fetchShowcase();DK.data=d;return d}
 function enterShowcase(){
   if(S.user?.showcase)return;
   stopRun();
   S.user={name:"Demo lease",live:true,showcase:true};
-  S.liveReady=false; S.liveSig=""; S.liveErr=""; S.showcase=null; S.showcaseMessage="";
+   S.privateBalances=null; S.liveEnded=false; S.liveReady=false; S.liveSig=""; S.liveErr=""; S.showcase=null;
   S.status="active"; S.calls=[]; S.log=[]; S.refused=0; S.settles=[]; S.voided=null; S.ui.sel=null;
 }
 async function liveLoad(){
@@ -493,7 +497,6 @@ async function liveLoad(){
       const data=await loadShowcase();
       if(!S.user?.showcase)return false;
       S.showcase=data;
-      if(!S.showcaseMessage&&data.mode==="live"){try{S.showcaseMessage=sessionStorage.getItem("showcase-result:"+data.lease.id)||""}catch{}}
       lease=data.lease; entries=data.journal.entries;
     }else{
       const init={headers:{Authorization:"Bearer "+L.token,Accept:"application/json"},cache:"no-store"};
@@ -502,7 +505,8 @@ async function liveLoad(){
       lease=await a.json(); ({entries}=await b.json());
     }
     const money=v=>Number.isSafeInteger(v)&&v>=0;
-    if(!lease||!money(lease.cap_minor)||!Array.isArray(entries)||(lease.authorizations&&!Array.isArray(lease.authorizations))||entries.some(e=>!e||!money(e.amount_minor)))throw new Error("unexpected response");
+     const b=lease?.balances;
+     if(!lease||!money(lease.cap_minor)||!b||![b.hold_available,b.committed_unsettled,b.total_captured].every(money)||!Array.isArray(entries)||(lease.authorizations&&!Array.isArray(lease.authorizations))||entries.some(e=>!e||!money(e.amount_minor)))throw new Error("unexpected response");
     const when=iso=>new Date(iso).toISOString().slice(11,16)+" UTC";
     const calls=[]; const log=[];
     const auth=lease.authorizations&&lease.authorizations[0];
@@ -510,21 +514,24 @@ async function liveLoad(){
     for(const e of showcase?[]:entries){
       if(e.ref_type!=="commit"||e.account!=="COMMITTED_UNSETTLED"||e.direction!=="D")continue;
       const id=calls.length+1;
-      calls.push({id,tool:"call",c:e.amount_minor,st:"accrued",t:when(e.created_at),raw:e});
+       calls.push({id,tool:"call",c:e.amount_minor,st:"committed",t:when(e.created_at),raw:e});
       log.push({t:when(e.created_at),m:`Committed ${fmt(e.amount_minor)} for call ${id}.`});
     }
     if(showcase){
       for(const row of S.showcase.calls){
         const t=when(row.created_at), amount=Number(row.price_minor);
         if(row.status==="served")calls.push({id:calls.length+1,tool:row.tool_id,c:amount,st:row.captured?"captured":"accrued",t,raw:row});
-        log.push({t,m:row.status==="served"?`Committed ${fmt(amount)} for ${row.tool_id}.`:`Refused ${fmt(amount)}: ${({refused_cap:"above what was free",window_ended:"the hold had ended"})[row.status]||row.status}.`});
+        log.push({t,m:row.status==="served"?`Committed ${fmt(amount)} for ${row.tool_id}.`:`Refused ${fmt(amount)}: ${({refused_cap:"above what was free",refused_window:"the hold had ended",refused_exposure:"above the unsettled limit",refused_inactive:"the lease was not active"})[row.status]||"refused by the kernel"}.`});
       }
     }
     if(lease.state!=="active")log.push({t:"",m:`Lease state is ${lease.state}.`});
-    const sig=JSON.stringify([lease.cap_minor,calls,lease.state,auth&&auth.honor_until,showcase&&S.showcase]);
+     const sig=JSON.stringify([lease.cap_minor,b,calls,lease.state,auth&&auth.honor_until,showcase&&S.showcase]);
     S.liveErr="";
     if(sig===S.liveSig)return true;
-    S.liveSig=sig; CAP=lease.cap_minor; S.calls=calls; S.log=log; S.nextId=calls.length+1;
+     S.liveSig=sig; CAP=lease.cap_minor; S.calls=calls; S.log=log; S.nextId=calls.length+1;
+     S.privateBalances=showcase?null:b;
+     S.liveState=lease.state;
+     S.liveEnded=!showcase&&(lease.state!=="active"||lease.guaranteed_now===false||!auth?.honor_until||Date.parse(auth.honor_until)<=Date.now());
     S.liveHonor=auth?String(auth.honor_until).replace("T"," ").slice(0,16):"";
     S.liveChanged=true;
     return true;
@@ -552,13 +559,20 @@ function renderNav(r){
   $("#nav").innerHTML=`<li><a href="/lease"${lease?' aria-current="page"':""}>Lease</a></li><li><a href="/proof"${r==="proof"?' aria-current="page"':""}>Proof</a></li>`;
   const nl=$("#newlease"); if(nl){if(r==="approve")nl.setAttribute("aria-current","page");else nl.removeAttribute("aria-current")}
 }
+const simBand=text=>`<div class="wrap"><div class="modeband" role="note"><span class="dk-line"><span class="dk-dot sim" aria-hidden="true"></span><strong class="dk-mode">INTERACTIVE SIMULATION</strong></span><span class="dk-sub">${text}</span></div></div>`;
+function leaseSource(){
+  if(S.user?.showcase&&S.showcase?.mode==="fixture")return `<div class="wrap"><div class="modeband" role="note"><span class="dk-line"><span class="dk-dot sim" aria-hidden="true"></span><strong class="dk-mode">SAVED DEMO FIXTURE</strong></span><span class="dk-sub">Snapshot assembled for fallback from ${esc(S.showcase.fixture_on)}. Its raw run is unavailable, so it is not PayPal evidence.${S.showcase.unreachable?" The live gateway did not answer.":""}</span></div></div>`;
+  if(!S.user?.live)return "";
+  const ended=S.showcase?.ended||S.liveEnded;
+  return `<div class="wrap"><div class="modeband" role="note"><span class="dk-line"><span class="dk-dot live" aria-hidden="true"></span><strong class="dk-mode">LIVE PAYPAL SANDBOX${ended?" · SPENDING CLOSED":""}</strong></span><span class="dk-sub">${ended?"The last lease read is historical. New paid calls are refused.":"Balances are computed from the sandbox lease journal. This is not a fresh PayPal GET."}</span></div></div>`;
+}
 function leaseTabs(v){
   const item=(k,l,href)=>`<li><a href="${href}"${v===k?' aria-current="page"':""}>${l}</a></li>`;
-  return `<div class="wrap"><nav class="leasetabs" aria-label="This lease"><span class="lt-label"><span class="lt-d">This lease</span><span class="lt-m">${esc(S.user?.showcase?"Demo lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease (fixture)":S.user?.name?"Your lease":"Lease")}</span></span><ul>${item("lease","Cord","/lease")}${S.user?.live?"":item("settle","Settle","/settle")}${item("escrow","Escrow","/escrow")}</ul></nav></div>`;
+  return `<div id="leaseSource">${leaseSource()}</div>${S.user?.live?"":simBand("sample lease, fixture amounts, nothing reaches PayPal")}<div class="wrap"><nav class="leasetabs" aria-label="This lease"><span class="lt-label"><span class="lt-d">This lease</span><span class="lt-m">${esc(S.user?.showcase?"Demo lease":S.user?.live?"Live lease":S.user?.sample?"Sample lease (fixture)":S.user?.name?"Your lease":"Lease")}</span></span><ul>${item("lease","Cord","/lease")}${S.user?.live?"":item("settle","Settle","/settle")}${item("escrow","Escrow","/escrow")}</ul></nav></div>`;
 }
 function slimBlock(){
   const s=sums();
-  const words=S.status==="voided"?"Lease voided. Nothing is held.":`${fmt(s.F)} free to spend, ${fmt(s.A)} owed, ${fmt(s.C)} captured, of ${fmt(CAP)}.`;
+  const words=S.status==="voided"?"Lease voided. Nothing is held.":`${fmt(s.F)} ${S.showcase?.mode==="fixture"?"uncommitted in fixture":S.showcase?.ended||S.liveEnded?"uncommitted at last read":"available"}, ${fmt(s.A)} committed, ${fmt(s.C)} captured, of ${fmt(CAP)}.`;
   return `<div class="slimcord"><div aria-hidden="true">${slimSVG()}</div>${trow(`<span class="help num">${words}</span>`,liveTag())}</div>`;
 }
 
@@ -583,7 +597,7 @@ V.lease=()=>{
   return `<div class="wrap"><div class="stage" id="leaseStage">
     <div class="lead" id="lead"></div>
     <aside class="honor" id="honor"></aside>
-    <div class="cordwrap"><div id="cord"></div><div class="scrub" id="scrub" role="slider" aria-orientation="vertical" aria-label="Move along the cord" tabindex="0" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="No call selected"><span class="thumb" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="readout" id="readout" aria-live="off"></div><div class="cordtools">${KEY_HTML}<button class="link-btn" data-act="sound" aria-pressed="false">Sound off</button></div></div>
+   <div class="cordwrap"><div id="cord"></div><div class="scrub" id="scrub" role="slider" aria-orientation="vertical" aria-label="Move along the cord" tabindex="0" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="No call selected"><span class="thumb" aria-hidden="true"><i></i><i></i><i></i></span></div><div class="readout" id="readout" aria-live="off"></div><div class="cordtools"><span id="cordKey">${KEY_HTML}</span><button class="link-btn" data-act="sound" aria-pressed="false">Sound off</button></div></div>
     <section class="controls" id="controls" aria-label="Lease actions"></section>
   </div></div>
   <div class="band"><div class="wrap"><div class="stage">
@@ -594,10 +608,18 @@ function paintLead(){
   const s=sums();
   const el=$("#lead"); if(!el)return;
   if(S.status==="voided"){
-    paintText(el,`<h1>The hold is released.</h1><p class="sub"><span>${fmt(S.voided.C)} was captured before the void. ${S.voided.A?`${fmt(S.voided.A)} owed for earlier calls was left unsettled in this sample. `:""}</span>The rest of the ${fmt(CAP)} hold went back to your PayPal. ${tagHtml("fixture")}</p>`,"h1,.sub > span:not(.tag)");
+     paintText(el,`<h1>The sample hold is released.</h1><p class="sub"><span>${fmt(S.voided.C)} was marked captured before the void. ${S.voided.A?`${fmt(S.voided.A)} owed for earlier calls was left unsettled in this sample. `:""}</span>The remaining sample hold was released in this browser. No PayPal call was made. ${tagHtml("fixture")}</p>`,"h1,.sub > span:not(.tag)");
     return;
   }
   const amount=fmt(s.F), balance=`Your agent has captured <span class="balance-amount">${fmt(s.C)}</span>${s.A?` and owes <span class="balance-amount balance-owed">${fmt(s.A)}</span> more that is still held, not yet captured`:""}.`;
+  if(S.user?.showcase&&S.showcase?.mode==="fixture"){
+    el.innerHTML=`<h1>Saved demo fixture.</h1><p class="sub"><span class="msg">This sample snapshot shows ${fmt(s.F)} uncommitted, ${fmt(s.A)} committed and ${fmt(s.C)} captured. Its raw run is unavailable, and these are not a current PayPal balance. <a href="/proof">See recorded PayPal evidence.</a></span> ${liveTag()}</p>`;
+    return;
+  }
+  if(S.user?.live&&(S.showcase?.ended||S.liveEnded)){
+    el.innerHTML=`<h1>The ${S.user.showcase?"demo":"live"} hold cannot spend.</h1><p class="sub"><span class="msg">The last lease read shows ${fmt(s.F)} uncommitted. The lease is ${esc(S.liveState||"unknown")} or its honor window has ended. The gateway refuses new paid calls.</span> ${liveTag()}</p>`;
+    return;
+  }
   const headline=$(".motion-value",el);
   if(headline){
     const visible=visibleLeaseRegions.has(el);
@@ -612,20 +634,16 @@ function paintLead(){
     }
     return;
   }
-  if(S.user?.showcase&&S.showcase?.ended){
-    el.innerHTML=`<h1>The hold has ended.</h1><p class="sub"><span class="msg">You approved ${fmt(CAP)} once. ${fmt(s.F)} was still free when the hold ended. The gateway now refuses every paid call, so nothing more can be spent.</span> ${liveTag()}</p>`;
-    return;
-  }
-  el.innerHTML=`<h1><span class="num motion-value">${amount}</span> is free to spend.</h1>
-   <p class="sub"><span class="msg">You approved ${fmt(CAP)} once. <span class="balance-copy">${balance}</span> ${S.user?.showcase&&S.showcase?.mode==="recorded"?"This is a saved run, so nothing on this page is live.":"The gateway refuses any call that would pass the cap."}</span> ${liveTag()}</p>`;
+   el.innerHTML=`<h1><span class="num motion-value">${amount}</span> is free to spend.</h1>
+    <p class="sub"><span class="msg">${S.user?.live?"You approved":"In this sample you approved"} ${fmt(CAP)} once. <span class="balance-copy">${balance}</span> The gateway refuses any call that would pass the cap.</span> ${liveTag()}</p>`;
 }
 function paintHonor(){
   const el=$("#honor"); if(!el)return;
   // fixture clock: hour 9 of a 72 hour honor period, day 4 opens the reauthorize window (assumed)
   const pct=h=>(h/96*100).toFixed(1)+"%";
   if(S.user&&S.user.live){
-    const ended=S.showcase?.ended, rec=S.showcase?.mode==="recorded";
-    el.innerHTML=`<h2>${rec?"Recorded run":ended?"Honor period ended":"72 hour honor period, then best effort"}</h2>${trow(`<span class="help">${rec?"No live hold is attached to this page.":`${ended?"Ended":"Honored until"} ${esc(S.liveHonor||"unknown")} UTC.`}</span>`,liveTag())}`;return}
+    const ended=S.showcase?.ended||S.liveEnded, fixture=S.showcase?.mode==="fixture";
+    el.innerHTML=`<h2>${fixture?"Fixture snapshot":ended?"Spending window closed":"72 hour honor period, then best effort"}</h2>${trow(`<span class="help">${fixture?"No current hold or traceable raw run is attached to this view.":`${ended?"Honor boundary":"Honored until"} ${esc(S.liveHonor||"unknown")} UTC. Ledger read ${esc(whenUTC(S.showcase?.read_at||Date.now()))}.`}</span>`,"")}`;return}
   el.innerHTML=`<h2>72 hour honor period, then best effort</h2>
    <div class="rulebar" aria-hidden="true"><i style="left:0;width:${pct(72)}"></i><b style="left:0"></b><b style="left:${pct(72)}"></b><em style="left:${pct(72)};width:${(100-72/96*100).toFixed(1)}%"></em><b style="left:${pct(9)};top:2px;height:25px;width:3px"></b></div>
    <p class="help">Hour 9 of 72. Day 4 would open a reauthorize window. Whether it works is unproven. ${tagHtml("fixture","fixture clock")} ${tagHtml("computed","proposal, not verified")}</p>`;
@@ -693,12 +711,13 @@ function paintSelection(){
 }
 function paintCord(opts={}){
   const el=$("#cord"); if(!el)return;
+  const key=$("#cordKey"); if(key){key.innerHTML=KEY_HTML; const label=key.querySelector(".key span:last-child"); if(label)label.lastChild.textContent=closedLabel()}
   const s=sums();
   const items=itemsForLease();
   const rel=S.voided||{A:0,F:0};
-  updateCord(el,{items,cap:CAP,C:s.C,A:s.A,F:s.F,vertical:isVertical(),ps:isVertical()?1:.8,voided:S.status==="voided",
+  updateCord(el,{items,cap:CAP,C:s.C,A:s.A,F:s.F,vertical:isVertical(),compactV:isVertical()&&!items.length,ps:isVertical()?1:.8,voided:S.status==="voided",
     relA:rel.A,relF:rel.F,interactive:true,live:"lease",
-    label:S.status==="voided"?"The lease cord, cut. The released length is gone.":`The lease as a knotted cord. ${items.length} calls tied. ${fmt(s.F)} free, ${fmt(s.A)} owed, ${fmt(s.C)} captured.`},opts);
+    label:S.status==="voided"?"The lease cord, cut. The released length is gone.":`The lease as a knotted cord. ${items.length} calls tied. ${fmt(s.F)} uncommitted, ${fmt(s.A)} committed, ${fmt(s.C)} captured.`},opts);
   paintSelection();
 }
 function paintReadout(){
@@ -707,12 +726,13 @@ function paintReadout(){
   const html=k
     ?trow(`<strong>Call ${k.id}, ${esc(k.tool)}</strong> <span class="num">${fmt(k.c)}</span> <span>${k.st}</span> <span class="num">${k.t}</span>`,liveTag())+`<code class="raw" aria-label="Raw row">${esc(JSON.stringify(k.raw||{id:k.id,tool:k.tool,amount_minor:k.c,state:k.st,at:k.t}))}</code>`
     :S.liveErr?`<span class="help">${esc(S.liveErr)}</span>`
-    :`<div class="hintrow"><button class="link-btn" data-act="read-cord" aria-expanded="${Boolean(S.ui.hint)}" aria-controls="cordhint">How to read this cord</button><span class="help" id="cordhint"${S.ui.hint?"":" hidden"}>Each pendant is a paid call. Knots by decimal place: tens, dollars, dimes, cents. Gold is captured, outlined is owed, cochineal is still free. ${isVertical()?"Drag the handle on the right, or tap a pendant, for its raw row.":"Hover or tap a pendant for its raw row."}</span></div>`;
+    :`<div class="hintrow"><button class="link-btn" data-act="read-cord" aria-expanded="${Boolean(S.ui.hint)}" aria-controls="cordhint">How to read this cord</button><span class="help" id="cordhint"${S.ui.hint?"":" hidden"}>Each pendant is a paid call. Knots by decimal place: tens, dollars, dimes, cents. Gold is captured, outlined is committed, teal is uncommitted. ${isVertical()?"Drag the handle on the right, or tap a pendant, for its raw row.":"Hover or tap a pendant for its raw row."}</span></div>`;
   paintText(el,html,".msg,.raw,#cordhint");
 }
 function paintLedger(){
   const el=$("#ledger"); if(!el)return;
   const s=sums();
+   const freeLabel=S.showcase?.mode==="fixture"?"Uncommitted in fixture":S.showcase?.ended||S.liveEnded?"Uncommitted at last read":"Free to spend";
   const visible=visibleLeaseRegions.has(el);
   if(!S.calls.length){
     el.innerHTML=`<div class="empty"><p><strong>No calls yet.</strong> Each paid call your agent makes ties one pendant onto the cord and takes its price out of the free length.</p><p class="help" style="margin-top:12px">${S.user&&S.user.live?"Calls appear here when your agent pays through the gateway.":"Press Let the agent spend to watch the first one."}</p></div>`;
@@ -733,6 +753,7 @@ function paintLedger(){
     }
     const amounts=[s.C,s.A,s.F];
     el.querySelectorAll("tfoot .num").forEach((cell,i)=>changeText(cell,fmt(amounts[i]),visible));
+    changeText(el.querySelector("tfoot tr:last-child td:first-child"),freeLabel,false);
     const log=$(".log",el), seen=Number(log.dataset.seen);
     if(seen!==S.log.length){
       const latest=S.log.slice(Math.max(seen,S.log.length-4)).reverse();
@@ -753,9 +774,9 @@ function paintLedger(){
    <tbody>${S.calls.map(rowHtml).join("")}</tbody>
    <tfoot><tr><td>Captured</td><td class="num r">${fmt(s.C)}</td><td colspan="2"></td></tr>
    <tr><td>Owed, not captured</td><td class="num r">${fmt(s.A)}</td><td colspan="2"></td></tr>
-   <tr><td>Free to spend</td><td class="num r">${fmt(s.F)}</td><td colspan="2"></td></tr></tfoot></table></div>
+   <tr><td>${freeLabel}</td><td class="num r">${fmt(s.F)}</td><td colspan="2"></td></tr></tfoot></table></div>
    <ul class="log" aria-label="Gateway log" data-seen="${S.log.length}">${S.log.slice(-4).reverse().map(logItem).join("")}</ul>
-   ${trow(S.user&&S.user.live?`<span class="help">Read from this lease’s journal. Tool names are not in the journal. Real captures are on Proof.</span>`:`<span class="help">Prices and tool names are sample data. Real captures are on Proof.</span>`,S.user&&S.user.live?liveTag():tagHtml("fixture","fixture ledger"))}`;
+    ${trow(S.user&&S.user.live?`<span class="help">${S.showcase?.mode==="fixture"?"Saved fixture, not a current balance.":"Balances are from the lease record, not a fresh PayPal GET."} ${S.user.showcase?"Tool names are from tool-call records.":"Call rows and balances are separate reads; capture cannot be assigned to a call from these rows."} Separate PayPal captures are on Proof.</span>`:`<span class="help">Prices and tool names are sample data. Real captures are on Proof.</span>`,S.user&&S.user.live?liveTag():tagHtml("fixture","fixture ledger"))}`;
 }
 function gaugeHtml(){
   return `<div class="gauge" data-gauge><div class="trow"><span class="msg"><span class="gnum num"></span> <span>free to spend</span></span><span class="tags">${liveTag()}</span></div><div class="gbar" aria-hidden="true"></div><p class="help gcap"></p></div>`;
@@ -771,36 +792,16 @@ function fillGauge(root){
 function paintControls(){
   const el=$("#controls"); if(!el)return;
   if(S.user?.showcase){
-    const data=S.showcase;
-    if(data?.mode==="recorded"){
-      el.innerHTML=`<section class="moment note-state"><div class="mcol"><h2 class="sec">${data.unreachable?"The gateway did not answer":"Showing a recorded run"}</h2>
-        <p>${data.unreachable?"The live demo lease could not be reached from this browser, so this page shows the saved sandbox run from ":"No live demo lease is configured right now. This is the saved sandbox run from "}<span class="num">${esc(data.recorded_on)}</span>. It is read only. ${liveTag()}</p>
-        <p class="help"><a href="/proof">Open the proof page</a> for the PayPal reads behind it.</p></div></section>`;
-      return;
+    const data=S.showcase, live=deskState().mode==="live", shape=live?"live":data?.mode==="fixture"?"fixture":"end";
+    if(el.dataset.shape!==shape||!el.querySelector("[data-desk]")){
+      el.dataset.shape=shape;
+      const note=shape==="fixture"?`<p class="note-p">${data.unreachable?"The gateway did not answer, so this page shows a saved demo fixture from ":"No live demo lease is configured, so this page shows a saved demo fixture from "}<span class="num">${esc(data.fixture_on)}</span>. Its raw run is unavailable. The desk below is a separate simulation. <a href="/proof">Inspect recorded PayPal evidence.</a></p>`
+        :shape==="end"?`<p class="note-p">The demo lease is ${esc(data.lease.state)} or its honor window ended. The gateway refuses new paid calls. The balance above is a last journal read, not spendable funds. The desk below is a separate simulation.</p>`:"";
+      el.innerHTML=`${note}<section class="moment dk-moment" aria-labelledby="momh"><div class="dk-cols${live?"":" solo"}"><div class="dk-left"><h2 class="sec" id="momh">Check an amount</h2>${deskHtml("lease")}</div>
+         ${live?`<aside class="dk-real" aria-labelledby="realh"><h2 class="sec" id="realh">Run one sandbox tool call</h2><p>Claude Haiku 5.5 summarises a fixed paragraph. The kernel reserves 3 cents inside a locked transaction; the commitment becomes durable only if the tool succeeds. PayPal capture is a later settlement step.</p><button class="btn fill cta" data-act="showcase-run">Run the agent · up to $0.03</button><p class="help" id="showcase-budget"></p></aside>`:""}</div></section>`;
     }
-    if(data?.ended){
-      el.innerHTML=`<section class="moment note-state"><div class="mcol"><h2 class="sec">This hold has ended</h2>
-        <p>The PayPal honor period for the demo hold ended at <span class="num">${esc(String(data.lease.authorizations[0].honor_until).replace("T"," ").slice(0,16))} UTC</span>. By design the gateway refuses new paid calls after that, so spending is switched off here. The journal below is what the lease did while it was open. ${liveTag()}</p>
-        <p class="help"><a href="/proof">Open the proof page</a> for the PayPal reads behind it.</p></div></section>`;
-      return;
-    }
-    const budget=data?.remaining_calls??0;
-    if(!el.querySelector("#showcase-price")){
-      el.innerHTML=`<section class="moment" aria-labelledby="momh"><div class="mcol"><h2 class="sec" id="momh">Try the gateway</h2>
-        ${gaugeHtml()}
-        <p class="help" id="showcase-budget"></p></div>
-        <div class="mcol"><button class="btn fill cta" data-act="showcase-run">Run the agent</button>
-        <div class="try"><label for="showcase-price">Price in cents</label>
-          <div class="tryrow"><input id="showcase-price" type="number" min="1" step="1" value="${Math.min(Number.MAX_SAFE_INTEGER, CAP+1)}">
-          <button class="btn accent" data-act="showcase-try">Preview cap decision</button></div></div>
-        <p class="help result" id="showcase-result" role="status"></p></div></section>`;
-    }
-    $("#showcase-budget").textContent=`Computed budget remaining: ${fmt(Number(data?.lease.balances.hold_available??0))}. Demo calls left: ${budget}.`;
-    $("#showcase-result").textContent=S.showcaseMessage||"";
-    $("#showcase-result").dataset.state=/^Refused/.test(S.showcaseMessage||"")?"refused":"";
-    fillGauge(el);
-    el.querySelector('[data-act="showcase-run"]').disabled=!!S.showcaseBusy||!budget;
-    el.querySelector('[data-act="showcase-try"]').disabled=!!S.showcaseBusy;
+    paintDesk();
+    if(live){$("#showcase-budget").textContent=`Demo calls left, per visitor today: ${data?.remaining_calls??0}.`;syncRunButton()}
     return;
   }
   if(S.user&&S.user.live){el.dataset.phase="live";el.innerHTML=`<p><strong>Live lease.</strong> Your agent spends through the gateway. This page only reads the journal. It cannot spend, settle or void.</p>`;return}
@@ -834,7 +835,7 @@ function paintControls(){
     <p class="help" style="margin-top:12px">Next call: <span class="mono next-tool">${next[0]}</span> at <span class="num next-price">${fmt(next[1])}</span>. <span class="err next-warning">${warning}</span></p></div>`;
   if(s.A>0)html+=`<div><p><strong class="owed-call">${settleAmount} is owed and not captured.</strong> Capturing in fewer, larger steps costs less.</p><a class="btn" id="settleCall" href="/settle" style="margin-top:12px">Settle ${settleAmount}</a></div>`;
   if(!S.ui.voidOpen){
-    html+=`<div><button class="btn" id="voidOpen">Void lease</button><p class="help" style="margin-top:8px">Releases the hold at PayPal. You confirm with the amount first.</p></div>`;
+    html+=`<div><button class="btn" id="voidOpen">Void lease</button><p class="help" style="margin-top:8px">On a real lease this releases the hold at PayPal. Here it is simulated. You confirm with the amount first.</p></div>`;
   }else{
     const held=s.held;
     html+=`<div class="confirm" role="group" aria-labelledby="vh"><p id="vh"><strong>Void releases the whole ${fmt(held)} hold.</strong></p>
@@ -852,11 +853,12 @@ function paintControls(){
 }
 function paintLease(opts){
   setGround();
-  document.body.dataset.ended=S.user?.showcase&&S.showcase?.ended?"1":"";
+  const source=$("#leaseSource"); if(source)source.innerHTML=leaseSource();
+  document.body.dataset.ended=S.user?.live&&(S.showcase?.ended||S.liveEnded)?"1":"";
   if(opts?.refused&&!reduced())S.hold=performance.now()+REFUSE_MS;
   const firstCall=opts?.dropId&&$("#ledger .empty");
   paintLead();
-  if(!$("#honor").firstElementChild)paintHonor();
+  paintHonor();
   paintCord(opts); paintLedger(); paintControls();
   if(firstCall&&visibleLeaseRegions.has($("#ledger"))){
     arrive($("#ledger tbody tr"));
@@ -898,44 +900,40 @@ function stopRun(){S.running=false;clearInterval(S.timer);S.timer=null;clearInte
 V.approve=()=>{
   if(S.status==="active"){
     const s=sums();
-    return `<div class="wrap"><div class="approve"><div><h1>A lease is already active.</h1>
-      <p class="sub" style="margin-top:24px;font-size:1.25rem;max-width:32rem">It holds ${fmt(s.held)} at PayPal. Void it from the Lease page first, or reset this prototype to try the approval flow from the start.</p></div>
+    return `${simBand("sample lease, fixture amounts, nothing reaches PayPal")}<div class="wrap"><div class="approve"><div><h1>A lease is already active.</h1>
+      <p class="sub" style="margin-top:24px;font-size:1.25rem;max-width:32rem">In this simulation it holds ${fmt(s.held)}, and nothing is held at PayPal. ${tagHtml("fixture")} Void it from the Lease page first, or reset this prototype to try the approval flow from the start.</p></div>
       <div><div class="btnrow"><a class="btn fill" href="/lease">Back to the lease</a><button class="btn" id="resetAll">Reset and approve again</button></div>
       <p class="help" style="margin-top:12px">Reset clears the fixture ledger on this page. It touches nothing at PayPal.</p></div></div></div>`;
   }
   const st=S.ui.approve;
   const busy=st==="loading";
-  return `<div class="wrap"><div class="approve"><div>
+  return `${simBand("sample lease, fixture amounts, nothing reaches PayPal")}<div class="wrap"><div class="approve"><div>
     <h1>Give your agent a budget.</h1>
     <ul class="terms">
-      <li><span>One hold</span><span>PayPal holds <strong class="num">${fmt(CAP)}</strong> on your account. Nothing is charged yet.</span></li>
-      <li><span>Spend</span><span>Your agent pays for tools from it, call by call. The gateway refuses any call that would pass ${fmt(CAP)}.</span></li>
+      <li><span>One hold</span><span>On a real lease, PayPal would hold <strong class="num">${fmt(CAP)}</strong> on your account and charge nothing yet. Here nothing is held. ${tagHtml("fixture")}</span></li>
+      <li><span>Spend</span><span>Your agent pays for tools from it, call by call. The gateway would refuse any call that would pass ${fmt(CAP)}.</span></li>
       <li><span>Capture</span><span>We capture in batches, because each capture costs about $0.49 plus 3.49% ${tagHtml("computed")}.</span></li>
       <li><span>Honor period</span><span>PayPal documents a 3 day honor period, then it is best effort. ${tagHtml("documented","from PayPal docs, not tested")}</span></li>
-      <li><span>Void</span><span>You can void at any time and confirm with the held amount.</span></li>
+       <li><span>Void</span><span>This sample lets you void and confirm with the held amount. Hosted lease closing is not wired yet.</span></li>
     </ul></div>
     <div><div class="slimcord" aria-hidden="true"><svg viewBox="0 0 1072 44"><rect x="1" y="14" width="1070" height="16" fill="none" stroke="#231F1B" stroke-width="1.4" stroke-dasharray="6 6"/></svg></div>
       <p class="sub" style="font-size:1.25rem">One approval. This is a sandbox prototype, so the approval below is a ${tagHtml("fixture")} and makes no PayPal call.</p>
       <div class="btnrow" style="margin-top:24px">
-        <button class="btn accent" id="approveGo" ${busy?'aria-busy="true" aria-disabled="true"':""} style="min-width:15.5rem">${busy?"Waiting for PayPal":`Approve ${fmt(CAP)} hold`}</button>
-        <button class="btn" id="approveNo" ${busy?'aria-disabled="true"':""}>Decline in PayPal</button></div>
-      ${st==="declined"?`<p class="err" style="margin-top:16px" role="alert">PayPal did not approve the hold. Nothing was held and nothing was charged. You can try again.</p>`:""}
+        <button class="btn accent" id="approveGo" ${busy?'aria-busy="true" aria-disabled="true"':""} style="min-width:15.5rem">${busy?"Simulating approval":`Simulate ${fmt(CAP)} approval`}</button>
+        <button class="btn" id="approveNo" ${busy?'aria-disabled="true"':""}>Simulate decline</button></div>
+      ${st==="declined"?`<p class="err" style="margin-top:16px" role="alert">The simulated approval was declined. Nothing was held or charged. You can try again.</p>`:""}
       </div></div></div>`;
 };
 
 /* ---------- escrow ---------- */
-const VERD=[["Not met",0],["Partly met",1],["Met",2]];
-const SHARE=[0,60,100];
+const VERD=[["Fail",0],["Unsure",1],["Pass",2]];
 const ESCROW=250;
-function effective(v,sc){let e=v; if(e===2&&sc<70)e=1; if(e>=1&&sc<40)e=0; return e}
 function escrowCalc(){
   const a=S.ui.esc.a,b=S.ui.esc.b;
-  const ea=effective(a.v,a.s), eb=effective(b.v,b.s);
-  const gap=Math.abs(ea-eb);
-  if(gap===2)return {ea,eb,held:true,pay:0,rule:"Met against Not met is a split. The money stays in escrow for appeal.",twist:0};
-  const e=Math.min(ea,eb);
-  const pay=Math.floor(ESCROW*SHARE[e]/100);
-  return {ea,eb,held:false,pay,share:SHARE[e],rule:gap===0?"The judges agree, so the rubric share applies.":"The judges differ by one step, so the lower verdict pays.",twist:1};
+  if(a.v!==b.v||a.v===1)return {ea:a.v,eb:b.v,held:true,pay:0,rule:"A split or an unsure verdict holds the reserve for another round or buyer appeal.",twist:0};
+  if(a.v===0)return {ea:0,eb:0,held:false,pay:0,rule:"Two fails void the job decision. The reserve returns to the lease.",twist:1};
+  const score=Math.min(a.s,b.s), share=score>=70?100:score>=40?60:20;
+  return {ea:2,eb:2,held:false,pay:Math.floor(ESCROW*share/100),share,rule:`Two passes. The lower score is ${score}; the buyer's preset rubric pays ${share}%.`,twist:1};
 }
 V.escrow=()=>{
   const a=S.ui.esc.a,b=S.ui.esc.b;
@@ -944,18 +942,18 @@ V.escrow=()=>{
     <div class="scorerow"><label for="sc${key}">Score</label><input type="range" id="sc${key}" data-sc="${key}" min="0" max="100" value="${j.s}"><span class="num" id="scv${key}" style="min-width:2.5ch;text-align:right">${j.s}</span></div></div>`;
   const er=proofEvidence.escrow;
   const recordedRun=`<section class="recorded-run" aria-labelledby="rrh"><h2 class="sec" id="rrh">A recorded escrow run</h2>
-    <p class="help">A ${fmt(er.capture.amount)} job, judged by two providers. The verdicts come from the run report. The capture and payout were read back from PayPal. ${tagHtml("recorded","recorded "+er.date)}</p>
+    <p class="help">A ${fmt(er.capture.amount)} job, judged by two providers. Verdicts and decision come from the run report. The capture is supported by its PayPal POST response; the payout has a separate GET. ${tagHtml("recorded","recorded "+er.date)}</p>
     <div class="rr-rows">${er.verdicts.map(v=>trow(`<span>Judge ${esc(v.provider)}</span> <span class="num">${esc(v.verdict)} · ${v.score}</span>`,tagHtml("recorded"))).join("")}
       ${trow(`<span>Kernel decision</span> <strong class="num">${esc(er.decision.status)} ${fmt(er.decision.amount)}</strong>`,tagHtml("computed"))}
-      ${trow(`<span>Capture ${esc(er.capture.status)}</span> <span class="num">${fmt(er.capture.amount)} \u00b7 fee ${fmt(er.capture.fee)}</span>`,tagHtml("measured"))}
+      ${trow(`<span>Capture ${esc(er.capture.status)} (POST response)</span> <span class="num">${fmt(er.capture.amount)} \u00b7 fee ${fmt(er.capture.fee)}</span>`,tagHtml("measured"))}
       ${trow(`<span>Payout ${esc(er.payout.status)}</span> <strong class="num">${fmt(er.payout.amount)}</strong>`,tagHtml("measured"))}</div>
-    <p class="help">The hosted site does not run escrow jobs yet. This is the saved run. <a href="/proof">The PayPal reads behind it</a> are on the evidence page.</p></section>`;
-  return `<div class="wrap">${slimBlock()}${recordedRun}<div class="two"><div class="title-block">
-    <h2 class="sec">Try the rule</h2><h1 class="try-h">Two judges propose. The database pays.</h1>
+     <p class="help">The hosted site does not run escrow jobs yet. This is the saved run. <a href="/proof">The PayPal responses behind it</a> are on the evidence page.</p></section>`;
+   return `<div class="wrap"><div class="modeband" role="note"><span class="dk-line"><span class="dk-dot sim" aria-hidden="true"></span><strong class="dk-mode">INTERACTIVE SIMULATION</strong></span><span class="dk-sub">Sample $2.50 job and buyer rubric. Nothing reaches PayPal.</span></div><div class="two"><div class="title-block">
+     <h2 class="sec">Try the rule</h2><h1 class="try-h">Two judges propose. The kernel decides.</h1>
     <p class="sub">The buyer set the rubric before the job began. A judge may only answer with a verdict from a fixed list and a score. No model ever writes an amount.</p>
     ${judge("a","Judge A, provider one",a)}${judge("b","Judge B, provider two",b)}
-    <p class="help" style="margin-top:16px">${tagHtml("fixture","sample job")} ${tagHtml("computed","real rule")} The $2.50 job and both verdicts are sample data you can move. The mapping is the kernel's rule, run in your browser.</p>
-  </div><div id="escOut"><div class="ply-out"></div><div class="kernel"></div></div></div></div>`;
+    <p class="help" style="margin-top:16px">${tagHtml("fixture","sample job")} The $2.50 job, rubric and verdicts are sample data. This browser simulation mirrors the kernel's pass, fail and hold rule.</p>
+   </div><div id="escOut"><div class="ply-out"></div><div class="kernel"></div></div></div><div class="modeband" role="note"><span class="dk-line"><span class="dk-dot recorded" aria-hidden="true"></span><strong class="dk-mode">RECORDED EVIDENCE</strong></span><span class="dk-sub">Dated sandbox run. This is not the current demo lease.</span></div>${recordedRun}</div>`;
 };
 function plySVG(tw,pay){
   const W=700,H=210,mid=96,X1=470,wl=64;
@@ -974,7 +972,6 @@ function paintEscrow(animate=true){
   const el=$("#escOut"); if(!el)return;
   const r=escrowCalc(), a=S.ui.esc.a,b=S.ui.esc.b;
   const nm=i=>VERD[i][0];
-  const note=(j,e,key)=>j.v!==e?`Judge ${key} said ${nm(j.v)} with ${j.s}. The rubric needs ${j.v===2?"70":"40"} or more, so the kernel counts it as ${nm(e)}.`:"";
   const ply=$(".ply-out",el), drawing=`${r.twist}:${r.pay}`;
   if(ply.dataset.drawing!==drawing){
     const previous=ply.firstElementChild;
@@ -997,15 +994,13 @@ function paintEscrow(animate=true){
   paintText($(".kernel",el),`<h2 style="font-size:1.25rem;letter-spacing:-.01em">What the kernel does with it ${tagHtml("computed","computed in your browser")}</h2>
     <dl><dt>Judge A counts as</dt><dd>${nm(r.ea)}</dd><dt>Judge B counts as</dt><dd>${nm(r.eb)}</dd><dt>Escrow</dt><dd class="num">${fmt(ESCROW)} ${tagHtml("fixture")}</dd></dl>
     <p style="margin-top:12px">${r.rule}</p>
-    ${[note(a,r.ea,"A"),note(b,r.eb,"B")].filter(Boolean).map(t=>`<p class="help" style="margin-top:8px">${t}</p>`).join("")}
     <div class="payout num" role="status">${r.held?`${fmt(ESCROW)} held`:`${fmt(r.pay)} to the seller`}</div>
-    <p class="help" style="margin-top:8px">${r.held?"Nobody is paid until an appeal resolves it.":`${fmt(ESCROW-r.pay)} would go back to the lease as free length. This prototype does not move it.`}</p>
+    <p class="help" style="margin-top:8px">${r.held?"Nobody is paid while held.":`${fmt(ESCROW-r.pay)} would return to the lease. The capture and seller payout are later, separate steps. This page moves no money.`}</p>
     <p class="help" style="margin-top:12px">${tagHtml("fixture","fixture rubric")} The shares and score thresholds below are sample choices a buyer would set.</p>
-    <pre class="rule" tabindex="0" aria-label="The rubric as code">rubric  Met 100%  Partly met 60%  Not met 0%
-Met needs score &gt;= 70, Partly needs &gt;= 40
-agree -> share   differ by 1 -> lower pays
-Met vs Not met -> hold for appeal
-amount = floor(escrow * share / 100)</pre>`,"dd,.kernel > p,.payout",animate);
+    <pre class="rule" tabindex="0" aria-label="The rubric as code">two pass -> use the lower score
+score 70+ pays 100%; 40+ pays 60%; below 40 pays 20%
+two fail -> void; split or unsure -> hold
+amount = floor(job cents * rubric basis points / 10000)</pre>`,"dd,.kernel > p,.payout",animate);
 }
 
 /* ---------- settle ---------- */
@@ -1120,32 +1115,6 @@ function exitBundlePart(root,source,rect,origin,x,y,duration){
   motion(node,[{opacity:1,transform:"none"},{opacity:0,transform:`translate(${x}px,${y}px)`}],duration,"forwards").finished.then(()=>node.remove(),()=>node.remove());
 }
 
-async function showcaseAction(action){
-  if(S.showcaseBusy||S.showcase?.mode!=="live")return;
-  const price=$("#showcase-price")?.value;
-  S.showcaseBusy=true; S.showcaseMessage="Checking the lease."; paintControls();
-  let dropped=false;
-  try{
-    const response=await fetch("/api/showcase/"+action+(action==="try"?"?price_minor="+encodeURIComponent(price):""),{
-      method:"POST",headers:{"Content-Type":"application/json"}
-    });
-    const data=await response.json();
-    if(data.reason){const wait=refuseFx($("#cord"),true);if(wait)await new Promise(r=>later(r,wait))}
-    dropped=action==="run"&&!data.reason&&!data.error;
-    S.showcaseMessage=data.reason?`Refused: ${data.reason}. Computed price ${fmt(data.price_minor)}, remaining ${fmt(data.remaining_minor)}.`
-      :data.error==="demo_limit"?"The demo call limit has been reached."
-      :data.error==="tool_failed"?"The model call failed. Nothing was charged."
-      :data.error?`Request unavailable: ${data.error}.`
-      :action==="try"?"The kernel allows that price. No call was made."
-      :`Computed amount committed ${fmt(data.price_minor)}. ${data.result?.summary||""}`;
-    if(S.user?.showcase&&S.showcase?.lease.id){
-      try{sessionStorage.setItem("showcase-result:"+S.showcase.lease.id,S.showcaseMessage)}catch{}
-    }
-    await liveLoad();
-  }catch{S.showcaseMessage="The showcase request could not be completed."}
-  finally{S.showcaseBusy=false;if(current==="lease"&&S.user?.showcase)paintLease(dropped?{dropId:S.calls.length}:{});}
-}
-
 /* ---------- proof ---------- */
 V.proof=()=>{
   const {fees,reconciliation,escrow,limits}=proofEvidence;
@@ -1160,7 +1129,7 @@ V.proof=()=>{
   const sharedCaptureDate=reconciliation.rows.every(row=>row.date===captureDate);
   const checks=reconciliation.rows.map(({id,amount,state,date})=>`<tr><th scope="row" class="mono">${esc(id)}</th><td>${money(amount)}</td><td>${state==="matched"?"Matched by fresh GET":"POST response only"} ${sharedCaptureDate?tagHtml("measured"):datedTag("measured",utc(date))}</td></tr>`).join("");
   const auth=reconciliation.authorization;
-  return `<div class="wrap proofpage" id="sandbox-proof">
+  return `<div class="wrap proofpage" id="sandbox-proof"><div class="modeband" role="note"><span class="dk-line"><span class="dk-dot recorded" aria-hidden="true"></span><strong class="dk-mode">RECORDED EVIDENCE</strong></span><span class="dk-sub">Dated PayPal sandbox responses and independently computed ledger figures. This is not the current demo lease.</span></div>
    <div class="proofhead"><h1>PayPal sandbox proof</h1><p class="sub">Recorded evidence from the capture fee experiment and the replacement lease run.</p></div>
    <section class="proof-section" aria-labelledby="proof-fees">
     <h2 id="proof-fees">Capture fees on one authorization</h2>
@@ -1204,7 +1173,7 @@ V.proof=()=>{
 ============================================================= */
 const BRAND_HTML=`<a class="brand" href="/lease" aria-label="Pashadhara, lease"><svg class="mark" viewBox="0 0 80 80" aria-hidden="true"><path d="M40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 L44.3 29.2 L45.0 29.3 L45.7 29.4 L46.4 29.5 L47.1 29.7 L47.8 29.8 L48.5 29.9 L49.2 30.1 L49.9 30.3 L50.6 30.5 L51.2 30.7 L51.9 30.9 L52.6 31.1 L53.2 31.3 L53.8 31.6 L54.5 31.8 L55.1 32.1 L55.7 32.4 L56.3 32.7 L56.9 33.0 L57.5 33.3 L58.1 33.6 L58.7 33.9 L59.2 34.3 L59.8 34.6 L60.3 35.0 L60.8 35.3 L61.3 35.7 L61.8 36.1 L62.3 36.5 L62.8 36.9 L63.3 37.3 L63.7 37.7 L64.1 38.1 L64.6 38.5 L65.0 39.0 L65.3 39.4 L65.7 39.8 L66.1 40.3 L66.4 40.7 L66.8 41.2 L67.1 41.6 L67.4 42.1 L67.7 42.6 L67.9 43.0 L68.2 43.5 L68.4 44.0 L68.7 44.4 L68.9 44.9 L69.1 45.4 L69.2 45.9 L69.4 46.4 L69.5 46.8 L69.7 47.3 L69.8 47.8 L69.9 48.3 L69.9 48.7 L70.0 49.2 L70.1 49.7 L70.1 50.1 L70.1 50.6 L70.1 51.0 L70.1 51.5 L70.0 51.9 L70.0 52.4 L69.9 52.8 L69.8 53.3 L69.7 53.7 L69.6 54.1 L69.5 54.5 L69.3 54.9 L69.2 55.3 L69.0 55.7 L68.8 56.1 L68.6 56.5 L68.4 56.9 L68.1 57.2 L67.9 57.6 L67.6 57.9 L67.3 58.3 L67.0 58.6 L66.7 58.9 L66.4 59.2 L66.1 59.5 L65.7 59.8 L65.4 60.0 L65.0 60.3 L64.6 60.5 L64.2 60.8 L63.8 61.0 L63.4 61.2 L63.0 61.4 L62.5 61.6 L62.1 61.7 L61.6 61.9 L61.2 62.0 L60.7 62.2 L60.2 62.3 L59.7 62.4 L59.2 62.5 L58.7 62.5 L58.2 62.6 L57.7 62.6 L57.1 62.7 L56.6 62.7 L56.1 62.7 L55.5 62.7 L55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 L28.5 41.7 L28.2 41.0 L28.0 40.3 L27.7 39.7 L27.5 39.0 L27.2 38.3 L27.0 37.7 L26.8 37.0 L26.6 36.3 L26.5 35.6 L26.3 34.9 L26.1 34.3 L26.0 33.6 L25.9 32.9 L25.8 32.2 L25.7 31.5 L25.6 30.9 L25.5 30.2 L25.5 29.5 L25.4 28.9 L25.4 28.2 L25.4 27.5 L25.4 26.9 L25.4 26.2 L25.4 25.6 L25.5 24.9 L25.5 24.3 L25.6 23.7 L25.7 23.1 L25.8 22.4 L25.9 21.8 L26.0 21.2 L26.1 20.6 L26.3 20.0 L26.4 19.5 L26.6 18.9 L26.8 18.4 L27.0 17.8 L27.2 17.3 L27.4 16.7 L27.6 16.2 L27.9 15.7 L28.1 15.2 L28.4 14.7 L28.7 14.3 L28.9 13.8 L29.2 13.4 L29.5 13.0 L29.8 12.5 L30.1 12.1 L30.5 11.7 L30.8 11.4 L31.1 11.0 L31.5 10.7 L31.8 10.3 L32.2 10.0 L32.6 9.7 L33.0 9.4 L33.3 9.1 L33.7 8.9 L34.1 8.6 L34.5 8.4 L34.9 8.2 L35.3 8.0 L35.7 7.8 L36.2 7.7 L36.6 7.5 L37.0 7.4 L37.4 7.3 L37.8 7.2 L38.3 7.1 L38.7 7.1 L39.1 7.0 L39.6 7.0 L40.0 7.0 L40.4 7.0 L40.9 7.0 L41.3 7.1 L41.7 7.1 L42.2 7.2 L42.6 7.3 L43.0 7.4 L43.4 7.5 L43.8 7.7 L44.3 7.8 L44.7 8.0 L45.1 8.2 L45.5 8.4 L45.9 8.6 L46.3 8.9 L46.7 9.1 L47.0 9.4 L47.4 9.7 L47.8 10.0 L48.2 10.3 L48.5 10.7 L48.9 11.0 L49.2 11.4 L49.5 11.7 L49.9 12.1 L50.2 12.5 L50.5 13.0 L50.8 13.4 L51.1 13.8 L51.3 14.3 L51.6 14.7 L51.9 15.2 L52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 L47.2 49.1 L46.7 49.7 L46.3 50.2 L45.9 50.8 L45.4 51.3 L44.9 51.9 L44.5 52.4 L44.0 52.9 L43.5 53.4 L43.0 53.9 L42.5 54.4 L42.0 54.9 L41.4 55.3 L40.9 55.8 L40.4 56.2 L39.8 56.6 L39.3 57.0 L38.7 57.4 L38.2 57.8 L37.6 58.2 L37.1 58.5 L36.5 58.9 L35.9 59.2 L35.4 59.5 L34.8 59.8 L34.2 60.1 L33.6 60.4 L33.1 60.6 L32.5 60.9 L31.9 61.1 L31.3 61.3 L30.7 61.5 L30.2 61.7 L29.6 61.8 L29.0 62.0 L28.4 62.1 L27.9 62.3 L27.3 62.4 L26.7 62.5 L26.2 62.5 L25.6 62.6 L25.0 62.6 L24.5 62.7 L23.9 62.7 L23.4 62.7 L22.9 62.7 L22.3 62.6 L21.8 62.6 L21.3 62.5 L20.8 62.5 L20.3 62.4 L19.8 62.3 L19.3 62.2 L18.8 62.0 L18.4 61.9 L17.9 61.7 L17.5 61.6 L17.0 61.4 L16.6 61.2 L16.2 61.0 L15.8 60.8 L15.4 60.5 L15.0 60.3 L14.6 60.0 L14.3 59.8 L13.9 59.5 L13.6 59.2 L13.3 58.9 L13.0 58.6 L12.7 58.3 L12.4 57.9 L12.1 57.6 L11.9 57.2 L11.6 56.9 L11.4 56.5 L11.2 56.1 L11.0 55.7 L10.8 55.3 L10.7 54.9 L10.5 54.5 L10.4 54.1 L10.3 53.7 L10.2 53.3 L10.1 52.8 L10.0 52.4 L10.0 51.9 L9.9 51.5 L9.9 51.0 L9.9 50.6 L9.9 50.1 L9.9 49.7 L10.0 49.2 L10.1 48.7 L10.1 48.3 L10.2 47.8 L10.3 47.3 L10.5 46.8 L10.6 46.4 L10.8 45.9 L10.9 45.4 L11.1 44.9 L11.3 44.4 L11.6 44.0 L11.8 43.5 L12.1 43.0 L12.3 42.6 L12.6 42.1 L12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 L44.3 29.2 L45.0 29.3 L45.7 29.4 L46.4 29.5 L47.1 29.7 L47.8 29.8 L48.5 29.9 L49.2 30.1 L49.9 30.3 L50.6 30.5 L51.2 30.7 L51.9 30.9 L52.6 31.1 L53.2 31.3 L53.8 31.6 L54.5 31.8 L55.1 32.1 L55.7 32.4 L56.3 32.7 L56.9 33.0 L57.5 33.3 L58.1 33.6 L58.7 33.9 L59.2 34.3 L59.8 34.6 L60.3 35.0 L60.8 35.3 L61.3 35.7 L61.8 36.1 L62.3 36.5 L62.8 36.9 L63.3 37.3 L63.7 37.7 L64.1 38.1 L64.6 38.5 L65.0 39.0 L65.3 39.4 L65.7 39.8 L66.1 40.3 L66.4 40.7 L66.8 41.2 L67.1 41.6 L67.4 42.1 L67.7 42.6 L67.9 43.0 L68.2 43.5 L68.4 44.0 L68.7 44.4 L68.9 44.9 L69.1 45.4 L69.2 45.9 L69.4 46.4 L69.5 46.8 L69.7 47.3 L69.8 47.8 L69.9 48.3 L69.9 48.7 L70.0 49.2 L70.1 49.7 L70.1 50.1 L70.1 50.6 L70.1 51.0 L70.1 51.5 L70.0 51.9 L70.0 52.4 L69.9 52.8 L69.8 53.3 L69.7 53.7 L69.6 54.1 L69.5 54.5 L69.3 54.9 L69.2 55.3 L69.0 55.7 L68.8 56.1 L68.6 56.5 L68.4 56.9 L68.1 57.2 L67.9 57.6 L67.6 57.9 L67.3 58.3 L67.0 58.6 L66.7 58.9 L66.4 59.2 L66.1 59.5 L65.7 59.8 L65.4 60.0 L65.0 60.3 L64.6 60.5 L64.2 60.8 L63.8 61.0 L63.4 61.2 L63.0 61.4 L62.5 61.6 L62.1 61.7 L61.6 61.9 L61.2 62.0 L60.7 62.2 L60.2 62.3 L59.7 62.4 L59.2 62.5 L58.7 62.5 L58.2 62.6 L57.7 62.6 L57.1 62.7 L56.6 62.7 L56.1 62.7 L55.5 62.7 L55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 L28.5 41.7 L28.2 41.0 L28.0 40.3 L27.7 39.7 L27.5 39.0 L27.2 38.3 L27.0 37.7 L26.8 37.0 L26.6 36.3 L26.5 35.6 L26.3 34.9 L26.1 34.3 L26.0 33.6 L25.9 32.9 L25.8 32.2 L25.7 31.5 L25.6 30.9 L25.5 30.2 L25.5 29.5 L25.4 28.9 L25.4 28.2 L25.4 27.5 L25.4 26.9 L25.4 26.2 L25.4 25.6 L25.5 24.9 L25.5 24.3 L25.6 23.7 L25.7 23.1 L25.8 22.4 L25.9 21.8 L26.0 21.2 L26.1 20.6 L26.3 20.0 L26.4 19.5 L26.6 18.9 L26.8 18.4 L27.0 17.8 L27.2 17.3 L27.4 16.7 L27.6 16.2 L27.9 15.7 L28.1 15.2 L28.4 14.7 L28.7 14.3 L28.9 13.8 L29.2 13.4 L29.5 13.0 L29.8 12.5 L30.1 12.1 L30.5 11.7 L30.8 11.4 L31.1 11.0 L31.5 10.7 L31.8 10.3 L32.2 10.0 L32.6 9.7 L33.0 9.4 L33.3 9.1 L33.7 8.9 L34.1 8.6 L34.5 8.4 L34.9 8.2 L35.3 8.0 L35.7 7.8 L36.2 7.7 L36.6 7.5 L37.0 7.4 L37.4 7.3 L37.8 7.2 L38.3 7.1 L38.7 7.1 L39.1 7.0 L39.6 7.0 L40.0 7.0 " fill="none" stroke="#4a423a" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M40.0 7.0 L40.4 7.0 L40.9 7.0 L41.3 7.1 L41.7 7.1 L42.2 7.2 L42.6 7.3 L43.0 7.4 L43.4 7.5 L43.8 7.7 L44.3 7.8 L44.7 8.0 L45.1 8.2 L45.5 8.4 L45.9 8.6 L46.3 8.9 L46.7 9.1 L47.0 9.4 L47.4 9.7 L47.8 10.0 L48.2 10.3 L48.5 10.7 L48.9 11.0 L49.2 11.4 L49.5 11.7 L49.9 12.1 L50.2 12.5 L50.5 13.0 L50.8 13.4 L51.1 13.8 L51.3 14.3 L51.6 14.7 L51.9 15.2 L52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 L47.2 49.1 L46.7 49.7 L46.3 50.2 L45.9 50.8 L45.4 51.3 L44.9 51.9 L44.5 52.4 L44.0 52.9 L43.5 53.4 L43.0 53.9 L42.5 54.4 L42.0 54.9 L41.4 55.3 L40.9 55.8 L40.4 56.2 L39.8 56.6 L39.3 57.0 L38.7 57.4 L38.2 57.8 L37.6 58.2 L37.1 58.5 L36.5 58.9 L35.9 59.2 L35.4 59.5 L34.8 59.8 L34.2 60.1 L33.6 60.4 L33.1 60.6 L32.5 60.9 L31.9 61.1 L31.3 61.3 L30.7 61.5 L30.2 61.7 L29.6 61.8 L29.0 62.0 L28.4 62.1 L27.9 62.3 L27.3 62.4 L26.7 62.5 L26.2 62.5 L25.6 62.6 L25.0 62.6 L24.5 62.7 L23.9 62.7 L23.4 62.7 L22.9 62.7 L22.3 62.6 L21.8 62.6 L21.3 62.5 L20.8 62.5 L20.3 62.4 L19.8 62.3 L19.3 62.2 L18.8 62.0 L18.4 61.9 L17.9 61.7 L17.5 61.6 L17.0 61.4 L16.6 61.2 L16.2 61.0 L15.8 60.8 L15.4 60.5 L15.0 60.3 L14.6 60.0 L14.3 59.8 L13.9 59.5 L13.6 59.2 L13.3 58.9 L13.0 58.6 L12.7 58.3 L12.4 57.9 L12.1 57.6 L11.9 57.2 L11.6 56.9 L11.4 56.5 L11.2 56.1 L11.0 55.7 L10.8 55.3 L10.7 54.9 L10.5 54.5 L10.4 54.1 L10.3 53.7 L10.2 53.3 L10.1 52.8 L10.0 52.4 L10.0 51.9 L9.9 51.5 L9.9 51.0 L9.9 50.6 L9.9 50.1 L9.9 49.7 L10.0 49.2 L10.1 48.7 L10.1 48.3 L10.2 47.8 L10.3 47.3 L10.5 46.8 L10.6 46.4 L10.8 45.9 L10.9 45.4 L11.1 44.9 L11.3 44.4 L11.6 44.0 L11.8 43.5 L12.1 43.0 L12.3 42.6 L12.6 42.1 L12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 " fill="none" stroke="#8C1D38" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 " fill="none" stroke="#D5D8CE" stroke-width="19" stroke-linecap="butt"/><path d="M55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M55.0 62.6 L54.4 62.6 L53.8 62.5 L53.3 62.5 L52.7 62.4 L52.1 62.3 L51.6 62.1 L51.0 62.0 L50.4 61.8 L49.8 61.7 L49.3 61.5 L48.7 61.3 L48.1 61.1 L47.5 60.9 L46.9 60.6 L46.4 60.4 L45.8 60.1 L45.2 59.8 L44.6 59.5 L44.1 59.2 L43.5 58.9 L42.9 58.5 L42.4 58.2 L41.8 57.8 L41.3 57.4 L40.7 57.0 L40.2 56.6 L39.6 56.2 L39.1 55.8 L38.6 55.3 L38.0 54.9 L37.5 54.4 L37.0 53.9 L36.5 53.4 L36.0 52.9 L35.5 52.4 L35.1 51.9 L34.6 51.3 L34.1 50.8 L33.7 50.2 L33.3 49.7 L32.8 49.1 L32.4 48.5 L32.0 47.9 L31.6 47.3 L31.2 46.7 L30.8 46.1 L30.5 45.5 L30.1 44.9 L29.8 44.2 L29.4 43.6 L29.1 43.0 L28.8 42.3 " fill="none" stroke="#4a423a" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 " fill="none" stroke="#D5D8CE" stroke-width="19" stroke-linecap="butt"/><path d="M52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M52.1 15.7 L52.4 16.2 L52.6 16.7 L52.8 17.3 L53.0 17.8 L53.2 18.4 L53.4 18.9 L53.6 19.5 L53.7 20.0 L53.9 20.6 L54.0 21.2 L54.1 21.8 L54.2 22.4 L54.3 23.1 L54.4 23.7 L54.5 24.3 L54.5 24.9 L54.6 25.6 L54.6 26.2 L54.6 26.9 L54.6 27.5 L54.6 28.2 L54.6 28.9 L54.5 29.5 L54.5 30.2 L54.4 30.9 L54.3 31.5 L54.2 32.2 L54.1 32.9 L54.0 33.6 L53.9 34.3 L53.7 34.9 L53.5 35.6 L53.4 36.3 L53.2 37.0 L53.0 37.7 L52.8 38.3 L52.5 39.0 L52.3 39.7 L52.0 40.3 L51.8 41.0 L51.5 41.7 L51.2 42.3 L50.9 43.0 L50.6 43.6 L50.2 44.2 L49.9 44.9 L49.5 45.5 L49.2 46.1 L48.8 46.7 L48.4 47.3 L48.0 47.9 L47.6 48.5 " fill="none" stroke="#8C1D38" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 " fill="none" stroke="#D5D8CE" stroke-width="19" stroke-linecap="butt"/><path d="M12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 " fill="none" stroke="#231F1B" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/><path d="M12.9 41.6 L13.2 41.2 L13.6 40.7 L13.9 40.3 L14.3 39.8 L14.7 39.4 L15.0 39.0 L15.4 38.5 L15.9 38.1 L16.3 37.7 L16.7 37.3 L17.2 36.9 L17.7 36.5 L18.2 36.1 L18.7 35.7 L19.2 35.3 L19.7 35.0 L20.2 34.6 L20.8 34.3 L21.3 33.9 L21.9 33.6 L22.5 33.3 L23.1 33.0 L23.7 32.7 L24.3 32.4 L24.9 32.1 L25.5 31.8 L26.2 31.6 L26.8 31.3 L27.4 31.1 L28.1 30.9 L28.8 30.7 L29.4 30.5 L30.1 30.3 L30.8 30.1 L31.5 29.9 L32.2 29.8 L32.9 29.7 L33.6 29.5 L34.3 29.4 L35.0 29.3 L35.7 29.2 L36.4 29.2 L37.1 29.1 L37.8 29.1 L38.6 29.0 L39.3 29.0 L40.0 29.0 L40.7 29.0 L41.4 29.0 L42.2 29.1 L42.9 29.1 L43.6 29.2 " fill="none" stroke="#8C1D38" stroke-width="8.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="word">Pashadhara</span></a>`;
 const brand=(href,label)=>BRAND_HTML.replace('href="/lease"',`href="${href}"`).replace('aria-label="Pashadhara, lease"',`aria-label="${label}"`);
-const APP_ROUTES=["lease","approve","escrow","settle","proof"];
+const APP_ROUTES=["lease","approve","escrow","settle","proof","quickstart"];
 const reduced=()=>reduceMotion.matches;
 
 S.user=null;
@@ -1230,7 +1199,7 @@ function renderChrome(mode,v){
   if(mode==="site"){
     h.innerHTML=`<div class="bar wrap">${brand("/","Pashadhara, home")}
      <nav aria-label="Primary"><ul>
-      <li><a href="/#how" data-scroll="how">How it works</a></li><li><a href="/#limits" data-scroll="limits">Limits</a></li><li><a href="/#connect" data-scroll="connect">Connect</a></li><li><a href="/proof"${v==="proof"?' aria-current="page"':""}>Proof</a></li></ul></nav>
+      <li><a href="/#how" data-scroll="how">How it works</a></li><li><a href="/#limits" data-scroll="limits">Limits</a></li><li><a href="/quickstart"${v==="quickstart"?' aria-current="page"':""}>Developers</a></li><li><a href="/escrow"${v==="escrow"?' aria-current="page"':""}>Escrow</a></li><li><a href="/proof"${v==="proof"?' aria-current="page"':""}>Proof</a></li></ul></nav>
      <div class="acts"><a class="btn fill sm" href="/lease?showcase=1">Open the live demo</a></div></div>`;
   }else if(mode==="flow"){
     const {step,mode:flowMode}=S.su, login=flowMode==="login", total=login?2:6;
@@ -1269,101 +1238,17 @@ function renderFooter(mode){
   if(mode==="app"){f.innerHTML=`<div class="wrap">${legend()}</div>`;return}
   f.innerHTML=`<div class="wrap"><div class="cols"><div>${legend()}</div>
    <div><h3>Product</h3><ul><li><a href="/lease?showcase=1">Open the live demo</a></li><li><a href="/proof">PayPal proof</a></li><li><a href="/" data-act="sample">Sample lease (fixture)</a></li></ul></div>
-   <div><h3>Read</h3><ul><li><a href="/#how" data-scroll="how">How it works</a></li><li><a href="/#limits" data-scroll="limits">What it cannot promise</a></li><li><a href="/#connect" data-scroll="connect">Connect an agent</a></li></ul></div></div></div>`;
+   <div><h3>Read</h3><ul><li><a href="/#how" data-scroll="how">How it works</a></li><li><a href="/#limits" data-scroll="limits">What it cannot promise</a></li><li><a href="/quickstart">Developer quickstart</a></li></ul></div></div></div>`;
 }
 
 /* ---------- landing ---------- */
-const HERO=[["flights.search",120],["pdf.extract",75],["geocode.batch",250],["filings.fetch",300],"CAPTURE",["summarize.long",475],["summarize.long",475],["summarize.long",475],["summarize.long",475]];
-const HD={items:[],i:0,timer:null,note:"",paused:false,visible:false,remaining:1250,due:0,reset:false,observer:null};
-function heroPaint(cue={}){
-  const el=$("#herocord"); if(!el)return;
-  let C=0,A=0; HD.items.forEach(k=>{k.st==="captured"?C+=k.c:A+=k.c});
-  updateCord(el,{items:HD.items,cap:2000,C,A,F:2000-C-A,vertical:isVertical(),live:"hero",ps:isVertical()?1:.66,label:"A lease cord for a twenty dollar hold. An agent ties paid calls onto it until a call that would pass the cap is refused."},cue);
-  paintText($("#herolog"),HD.note||trow(`<span>Twenty dollars held. Nothing spent yet.</span>`,tagHtml("fixture")),".msg",cue.animate!==false);
-}
-function heroTick(){
-  if(HD.reset){
-    HD.items=[]; HD.i=0; HD.note=""; HD.reset=false;
-    heroPaint({reset:true});
-    return 1250;
-  }
-  const step=HERO[HD.i%HERO.length];
-  let C=0,A=0; HD.items.forEach(k=>{k.st==="captured"?C+=k.c:A+=k.c});
-  const cue={};
-  if(step==="CAPTURE"){
-    HD.items.forEach(k=>k.st="captured"); cue.capture=true;
-    HD.note=trow(`<strong>Settled in one capture.</strong> <span class="num">${fmt(A)}</span> <span>fee ${fmt(feeC(A))} instead of ${fmt(HD.items.filter(k=>k.st==="captured").slice(-4).reduce((a,k)=>a+feeC(k.c),0))} one by one</span>`,`${tagHtml("fixture","fixture amount")}${tagHtml("computed","computed fee")}`);
-  }else{
-    const [tool,c]=step, F=2000-C-A;
-    if(c>F){
-      const note=trow(`<strong>Refused.</strong> <span>${tool} at <span class="num">${fmt(c)}</span> would pass the cap. <span class="num">${fmt(F)}</span> stays free.</span>`,tagHtml("fixture"));
-      HD.reset=true;
-      if(reduced()){HD.note=note;heroPaint({refused:true})}
-      else{heroPaint({refused:true,haptic:false});later(()=>{HD.note=note;heroPaint({})},REFUSE_MS)}
-      return 4200;
-    }
-    const k={id:HD.items.length+1,tool,c,st:"accrued"}; HD.items.push(k); cue.dropId=k.id;
-    HD.note=trow(`<span>Agent committed <span class="num">${fmt(c)}</span> for ${tool}.</span> <span class="num">${fmt(F-c)}</span> <span>free</span>`,tagHtml("fixture"));
-  }
-  HD.i++; heroPaint(cue);
-  return 1250;
-}
-function heroStop(){
-  if(HD.timer!==null){
-    HD.remaining=Math.max(0,HD.due-performance.now());
-    clearTimeout(HD.timer);
-    HD.timer=null;
-  }
-}
-function heroPlayback(){
-  const el=$("#herocord");
-  if(!el)return;
-  const playing=HD.visible&&!HD.paused&&!document.hidden&&!reduced();
-  const animations=[...el.getAnimations({subtree:true}),...$("#herolog").getAnimations({subtree:true})];
-  for(const animation of animations){
-    if(animation.playState==="paused"&&playing)animation.play();
-    if(animation.playState==="running"&&!playing)animation.pause();
-  }
-  if(!playing){heroStop();return}
-  heroSchedule();
-}
-function heroSchedule(){
-  if(HD.timer!==null)return;
-  HD.due=performance.now()+HD.remaining;
-  HD.timer=setTimeout(()=>{
-    HD.timer=null;
-    if(!HD.visible||HD.paused||document.hidden||reduced())return;
-    HD.remaining=heroTick();
-    heroSchedule();
-  },HD.remaining);
-}
-function heroStill(){
-  HD.items=[]; HD.i=0; HD.note=""; HD.reset=false; HD.remaining=1250;
-  if(reduced()){
-    HD.items=[{id:1,tool:"flights.search",c:120,st:"captured"},{id:2,tool:"pdf.extract",c:75,st:"captured"},{id:3,tool:"geocode.batch",c:250,st:"captured"},{id:4,tool:"filings.fetch",c:300,st:"captured"},{id:5,tool:"summarize.long",c:475,st:"accrued"},{id:6,tool:"summarize.long",c:475,st:"accrued"}];
-    HD.note=trow(`<strong>Refused.</strong> <span>summarize.long at <span class="num">$4.75</span> would pass the cap. <span class="num">$3.05</span> stays free.</span>`,tagHtml("fixture"));
-  }
-  heroPaint({animate:false});
-}
-function disposeHero(){
-  heroStop();
-  HD.observer?.disconnect();
-  HD.observer=null;
-}
-on(document,"visibilitychange",heroPlayback);
-on(reduceMotion,"change",()=>{
-  if(reduced())document.getAnimations().forEach(animation=>animation.cancel());
-  if(!$("#herocord"))return;
-  heroStop();
-  heroStill();
-  heroPlayback();
-});
+on(reduceMotion,"change",()=>{if(reduced())document.getAnimations().forEach(animation=>animation.cancel())});
 const HOW=[
- ["Approve","You approve one PayPal hold. Nothing is charged. The hold becomes the cord, and its length is your budget.",()=>cordSVG({items:[],cap:2000,C:0,A:0,F:2000,vertical:isVertical(),tickFs:24,label:"An empty cord. Twenty dollars of free length."}),"One hold, one budget. The red length is what your agent may still spend."],
+ ["Approve","You approve one PayPal hold. Nothing is charged. The hold becomes the cord, and its length is your budget.",()=>cordSVG({items:[],cap:2000,C:0,A:0,F:2000,vertical:isVertical(),tickFs:24,label:"An empty cord. Twenty dollars of free length."}),"One hold, one budget. The teal length is what your agent may still spend. Illustration, fixture amounts."],
  ["Spend","Your agent pays for tools through the gateway. Each call ties a pendant to the cord. A call that would pass the cap is refused before PayPal is ever asked.",()=>cordSVG({items:[{id:1,c:120,st:"accrued"},{id:2,c:75,st:"accrued"},{id:3,c:250,st:"accrued"},{id:4,c:300,st:"accrued"},{id:5,c:475,st:"accrued"}],cap:2000,C:0,A:1220,F:780,vertical:isVertical(),tickFs:24,label:"Five paid calls tied on the cord."}),"Outlined knots are owed, not yet captured. Illustration, fixture amounts."],
- ["Settle","Calls pile up as owed. We capture them in fewer, larger steps, because every capture costs about $0.49 plus 3.49%. Twelve $1 captures cost $6.24 in fees. One $12 capture is about $0.91.",()=>cordSVG({items:[{id:1,c:120,st:"captured"},{id:2,c:75,st:"captured"},{id:3,c:250,st:"captured"},{id:4,c:300,st:"captured"},{id:5,c:475,st:"captured"}],cap:2000,C:1220,A:0,F:780,vertical:isVertical(),tickFs:24,label:"The same calls, now captured."}),"Solid knots are captured. Fee figures are measured, then computed."],
- ["Judge","For escrowed jobs, two AI judges propose a verdict from a fixed list and a score. The database turns that into an amount with the rubric you set before the job. No model writes a number.",()=>plySVG(1,150),"Agreeing judges twist into one cord. A split stays apart and the money stays held."],
- ["Void","Void any time. You type the held amount first, then the free length is cut away and the hold goes back to your PayPal. In the sample lease, settle owed calls before you void.",()=>cordSVG({items:[{id:1,c:120,st:"captured"},{id:2,c:75,st:"captured"},{id:3,c:250,st:"captured"},{id:4,c:300,st:"captured"}],cap:2000,C:745,A:0,F:0,vertical:false,voided:true,relA:0,relF:1255,animCut:false,label:"A cord cut after four captured calls."}),"The faded dashes are the length that was released."]
+ ["Settle",`Calls pile up as owed. We capture them in fewer, larger steps, because every capture costs about $0.49 plus 3.49%. Twelve $1 captures cost ${fmt(proofEvidence.fees.feeTotal)} in fees. One $12 capture is about ${fmt(proofEvidence.fees.singleCaptureEstimate)}. The fee figures come from recorded sandbox captures.`,()=>cordSVG({items:[{id:1,c:120,st:"captured"},{id:2,c:75,st:"captured"},{id:3,c:250,st:"captured"},{id:4,c:300,st:"captured"},{id:5,c:475,st:"captured"}],cap:2000,C:1220,A:0,F:780,vertical:isVertical(),tickFs:24,label:"The same calls, now captured."}),"Solid knots are captured. Fee figures are measured, then computed."],
+ ["Judge","For escrowed jobs, two AI judges propose a verdict from a fixed list and a score. The database turns that into an amount with the rubric you set before the job. No model writes a number. The real judged runs are recorded on the proof page.",()=>plySVG(1,150),"Agreeing judges twist into one cord. A split stays apart and the money stays held."],
+ ["Void","A completed close flow would settle commitments, void the rest at PayPal, then post release entries. The hosted close route is not wired. The sample lease shows the intended interaction without a PayPal call.",()=>cordSVG({items:[{id:1,c:120,st:"captured"},{id:2,c:75,st:"captured"},{id:3,c:250,st:"captured"},{id:4,c:300,st:"captured"}],cap:2000,C:745,A:0,F:0,vertical:false,voided:true,relA:0,relF:1255,animCut:false,label:"A cord cut after four captured calls."}),"The faded dashes illustrate a released length; this is fixture data."]
 ];
 function howPaint(i){
   const [name,txt,vis,cap]=HOW[i];
@@ -1379,49 +1264,31 @@ function howPaint(i){
 const faqTestTag=datedTag("computed","2026-11-11","· stubbed provider tests");
 const FAQ=[
  ["Does my agent ever see my card?","No. Your agent gets a gateway token. The card stays with PayPal, and you approve the hold on PayPal's own page."],
- ["What if my agent tries to overspend?",`Both Run the agent and Preview cap decision refuse a price above the remaining cap. Run checks before committing the price or calling the provider. Preview only evaluates the price. ${faqTestTag}`],
- ["What happens when I void a lease?",`The kernel refuses all further paid calls on a voided lease without any new charge. The token still authenticates, but the kernel returns window_ended because no live authorization remains. ${faqTestTag}`],
+ ["What if my agent tries to overspend?",`Both Run the agent and Check this amount refuse a price above the remaining cap. Run checks before committing the price or calling the provider. Check this amount only evaluates the price. ${faqTestTag}`],
+ ["What happens when I void a lease?",`The kernel refuses further paid calls without a new commitment. A closed lease token also stops authorizing protected reads. The sample void is a browser simulation; the recorded PayPal void is on the proof page. ${faqTestTag}`],
  ["What happens after the honor period?","After the honor period, capture is best effort. Day-four reauthorization and capture behavior are unproven."],
- ["Why not just give my agent a virtual card?","Agent cards with limits are real and useful. Pashadhara is for people who want the hold on their own PayPal account, with capture batching, escrow for judged work and a one step void in one ledger."],
+ ["Why not just give my agent a virtual card?","Agent cards with limits are real and useful. Pashadhara is a sandbox pilot for agent authority bounded by a PayPal hold and an auditable kernel journal. Capture batching and judged escrow have recorded runs; hosted self-service and lease closing are unfinished."],
  ["What if PayPal does not answer?","PayPal timeout handling is unproven end to end."],
  ["Is this live?","The showcase can run real agent calls against a PayPal sandbox lease while demo capacity is available. When no showcase lease is configured, the showcase shows a dated recording. The sample lease uses fixture data. All PayPal activity uses sandbox funds.",`Run the agent uses the gateway path that checks and commits the call price. ${faqTestTag}`]
 ];
 V.home=()=>`
 <section class="hero2"><div class="wrap">
-  <div class="herogrid"><div class="herocopy">
-  <h1 class="h1d">Your agent can spend <span class="num">$20.00</span>.<br>Not <span class="num">$20.01</span>.</h1>
-  <p class="lede2">One PayPal hold becomes a limit enforced by a database, not by the model. You approve once. Every call is checked before it runs, and a call that would pass the limit is refused before any model is called.</p>
-  <div class="ctas"><a class="btn fill" href="/lease?showcase=1">Open the live demo</a><a class="tert" href="/proof">See the PayPal proof</a></div>
+  <div class="herogrid"><div class="herocopy" style="grid-area:copy">
+  <p class="eyebrow">Spending authority for AI agents, built on PayPal holds</p>
+  <h1 class="h1d">Give your agent authority.<br><span class="h1-accent">Keep the boundary.</span></h1>
+  <p class="lede2">Approve one PayPal sandbox hold. Your agent calls paid tools on its own. A deterministic kernel checks and reserves each price before execution, then commits it if the tool succeeds. The model cannot raise the limit.</p>
+  <div class="ctas"><a class="btn fill" href="/lease?showcase=1">Inspect the demo lease</a><a class="tert" href="/quickstart">Integrate an agent</a><a class="tert" href="/proof">See evidence</a></div>
   </div>
-  <figure class="receipt-card" aria-labelledby="rcap">
-    <div class="rc-head"><span class="mono">POST /api/showcase/try</span><span>${tagHtml("computed","kernel test")}</span></div>
-    <dl class="rc-rows">
-      <div><dt>Asked</dt><dd class="num">$2.01</dd></div>
-      <div><dt>Free on the lease</dt><dd class="num">$2.00</dd></div>
-      <div class="rc-hit"><dt>Decision</dt><dd><strong>Refused</strong> <span class="mono">cap_reached</span></dd></div>
-      <div><dt>Model called</dt><dd>No</dd></div>
-      <div><dt>Charged</dt><dd class="num">$0.00</dd></div>
-    </dl>
-    <figcaption id="rcap">One cent over the free amount. From the stubbed-provider gateway test on 2026-11-11, not a PayPal result.</figcaption>
-  </figure>
+  <div class="deskcol">${deskHtml("home")}</div>
+  <section class="holds" aria-labelledby="holds-h"><h2 class="holds-h" id="holds-h">How the limit holds</h2>
+   <ol>
+    <li><span>You approve one hold on PayPal. Nothing is charged yet.</span></li>
+    <li><span>Your agent gets a gateway token. It never sees your card.</span></li>
+    <li><span>Each paid call is priced and checked against the hold before it runs.</span></li>
+    <li><span>Over the line: refused before any model is called. Nothing charged.</span></li>
+    <li><span>Served calls are journaled as commitments. PayPal captures are separate. Inspect the <a href="/proof">recorded proof</a>.</span></li>
+   </ol></section>
   </div>
-  <div class="stagedark" role="group" aria-label="The cord, animated with sample amounts">
-    <div class="stagebar"><span class="sb-name">A $20.00 hold, drawn as a cord</span><span class="sb-tag">${tagHtml("fixture","sample amounts")}</span></div>
-    <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><div class="herotools"><button class="link-btn" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause</button><button class="link-btn" data-act="sound" aria-pressed="false">Sound off</button>${KEY_HTML}</div></div>
-    <div class="livestrip" id="homelive" aria-live="polite"><span class="sk" style="width:9rem"></span><span class="sk" style="width:12rem"></span><span class="sk" style="width:7rem"></span></div>
-  </div>
-  <p class="sr">An animated lease cord. An agent ties paid calls onto a twenty dollar hold, calls are settled in one capture, and a call that would pass the cap is refused.</p>
-</div></section>
-
-<section class="why sect" id="why"><div class="wrap">
-  <h2 class="big2">Twelve $1.00 captures paid $6.24 in fees. One $12.00 capture would pay an estimated $0.91.</h2>
-  <p class="lede">That is why a hold is settled in few, large captures. These numbers come from our own PayPal sandbox log.</p>
-  <div class="receipt">
-    <div class="rrow"><span class="what">Fees on twelve $1.00 captures of one authorization</span><span class="val">$6.24</span><span class="tags">${tagHtml("measured")}</span></div>
-    <div class="rrow"><span class="what">Fee on one $12.00 capture, from the same fee model</span><span class="val">$0.91</span><span class="tags">${tagHtml("computed")}</span></div>
-    <div class="rrow"><span class="what">Sandbox authorization used for the fee experiment</span><span class="val">${fmt(proofEvidence.fees.cap)}</span><span class="tags">${tagHtml("measured")}</span></div>
-  </div>
-  <a class="rawlink" href="/proof">See the recorded capture evidence</a>
 </div></section>
 
 <section class="sect" id="how"><div class="wrap">
@@ -1433,31 +1300,12 @@ V.home=()=>`
   </div>
 </div></section>
 
-<section class="limits sect" id="limits"><div class="wrap">
-  <h2 class="big2">What it cannot promise, said plainly.</h2>
-  <p class="lede">PayPal has no agent wallet. We build on an authorization hold, and a hold has limits we would rather you read here than discover later.</p>
-  <div class="cols">
-    <div><h3>The database enforces</h3><ul>
-      <li><span>The remaining lease cap, checked before a tool call is charged.</span></li>
-      <li><span>Every amount. Money is whole cents and no model chooses one.</span></li>
-      <li><span>Escrow payouts, from the rubric you set before the job.</span></li>
-      <li><span>A void you confirm by typing the held amount.</span></li></ul></div>
-    <div><h3>PayPal decides</h3><ul>
-      <li><span>A hold is honored for about 72 hours, then it is best effort.</span><span class="tags">${tagHtml("documented","from PayPal docs")}</span></li>
-      <li><span>Day-four reauthorization is unproven.</span></li>
-      <li><span>The gateway enforces its own cap. The PayPal overage boundary is unproven.</span></li>
-      <li><span>A $1.00 sandbox payout reached SUCCESS 24 seconds after it was created.</span><span class="tags">${tagHtml("measured")}</span></li>
-      <li><span>An authorization carries an expiry time 29 days after it was created.</span><span class="tags">${tagHtml("measured")}</span></li>
-      <li><span>Capture after the honor period is unproven.</span></li>
-      <li><span>PayPal timeout handling is unproven end to end.</span></li></ul></div>
-  </div>
-</div></section>
-
 <section class="sect connect" id="connect"><div class="wrap">
   <div class="cn-copy">
-    <h2 class="big2">Point an agent at the gateway.</h2>
-    <p class="lede">The gateway is an MCP server over HTTP. The agent authenticates with a lease token, never with your card. Each paid tool call is priced, checked against the hold and written to the journal before the tool runs.</p>
-    <p class="help">The tool today is <span class="mono">summarise</span>, backed by Claude Haiku 5.5, at 3 cents a call. ${datedTag("computed","2026-11-11","· gateway tests")}</p>
+    <h2 class="big2">An agent budget you can integrate.</h2>
+    <p class="lede">Pashadhara exposes a Streamable HTTP MCP gateway. A lease token gives one agent access to one approved budget. The kernel prices and checks calls; successful calls become journal commitments. Captures at PayPal happen later.</p>
+    <ol class="connect-steps"><li><strong>Provision</strong> an operator-created sandbox lease and have the buyer approve the PayPal hold.</li><li><strong>Connect</strong> the lease token to your MCP client with the configuration shown here.</li><li><strong>Verify</strong> available, committed and captured cents from the lease and journal reads. The public demo preview checks only the demo lease.</li></ol>
+    <p class="help">The current paid tool is <span class="mono">summarise</span>, backed by Claude Haiku 5.5, priced at 3 cents per call. Lease creation requires an operator key; public self-service onboarding is not available. <a href="/quickstart">Developer quickstart and exact requests</a>.</p>
   </div>
   <pre class="rule snippet" tabindex="0" aria-label="MCP client configuration"><code>{
   "mcpServers": {
@@ -1470,6 +1318,37 @@ V.home=()=>`
 }</code></pre>
 </div></section>
 
+<section class="limits sect" id="limits"><div class="wrap">
+  <h2 class="big2">What it cannot promise, said plainly.</h2>
+  <p class="lede">PayPal has no agent wallet. We build on an authorization hold, and a hold has limits we would rather you read here than discover later.</p>
+  <div class="cols">
+    <div><h3>The kernel and database enforce</h3><ul>
+      <li><span>The kernel checks the remaining cap under the lease lock before a paid tool runs. The database rejects an invalid posting.</span></li>
+      <li><span>Money is whole cents. A model never chooses an amount.</span></li>
+      <li><span>For escrow, the stored buyer rubric determines a payout after the judges propose verdicts.</span><span class="tags"><a href="/proof">${tagHtml("recorded","recorded runs")}</a></span></li>
+      <li><span>The database allows a release posting only after a succeeded PayPal void call. Hosted lease closing is not wired yet.</span></li></ul></div>
+    <div><h3>PayPal decides</h3><ul>
+      <li><span>A hold is honored for about 72 hours, then it is best effort.</span><span class="tags">${tagHtml("documented","from PayPal docs")}</span></li>
+      <li><span>Day-four reauthorization is unproven.</span></li>
+      <li><span>The gateway enforces its own cap. The PayPal overage boundary is unproven.</span></li>
+      <li><span>A $1.00 sandbox payout reached SUCCESS 24 seconds after it was created.</span><span class="tags">${tagHtml("measured")}</span></li>
+      <li><span>An authorization carries an expiry time 29 days after it was created.</span><span class="tags">${tagHtml("measured")}</span></li>
+      <li><span>Capture after the honor period is unproven.</span></li>
+      <li><span>PayPal timeout handling is unproven end to end.</span></li></ul></div>
+  </div>
+</div></section>
+
+<section class="why sect" id="why"><div class="wrap">
+  <h2 class="big2">Twelve $1.00 captures paid ${fmt(proofEvidence.fees.feeTotal)} in fees. One $12.00 capture would pay an estimated ${fmt(proofEvidence.fees.singleCaptureEstimate)}.</h2>
+  <p class="lede">That is why capture batching matters. These numbers come from our own PayPal sandbox log; hosted lease settlement is not wired yet.</p>
+  <div class="receipt">
+    <div class="rrow"><span class="what">Fees on twelve $1.00 captures of one authorization</span><span class="val">${fmt(proofEvidence.fees.feeTotal)}</span><span class="tags">${tagHtml("measured")}</span></div>
+    <div class="rrow"><span class="what">Fee on one $12.00 capture, from the same fee model</span><span class="val">${fmt(proofEvidence.fees.singleCaptureEstimate)}</span><span class="tags">${tagHtml("computed")}</span></div>
+    <div class="rrow"><span class="what">Sandbox authorization used for the fee experiment</span><span class="val">${fmt(proofEvidence.fees.cap)}</span><span class="tags">${tagHtml("measured")}</span></div>
+  </div>
+  <a class="rawlink" href="/proof">See the recorded capture evidence</a>
+</div></section>
+
 <section class="sect" id="faq" style="padding-top:var(--s8)"><div class="wrap">
   <h2 class="big2">Questions worth asking first.</h2>
   <div class="faq">${FAQ.map(([q,a,test])=>`<details><summary>${q}</summary><p>${a}</p>${test?`<p>${test}</p>`:""}</details>`).join("")}</div>
@@ -1480,40 +1359,232 @@ V.home=()=>`
   <div class="ctas"><a class="btn fill" href="/lease?showcase=1">Open the live demo</a><a class="tert" href="/proof">See the PayPal proof</a></div>
   <p class="help" style="margin-top:var(--s5)">Sandbox only. No real money moves.</p>
 </div></section>`;
+V.quickstart=()=>`<div class="wrap quickstart"><p class="eyebrow">Developer integration · sandbox pilot</p><h1>One hold. One lease token. A bounded agent.</h1>
+   <p class="lede">This path is for an operator provisioning an agent for a buyer. The signup flow is a simulation. In this build, lease creation requires an operator key. Keep it on your server; the agent receives only the lease token. Deploy this build and verify its contract before sending a provisioning request to a hosted API.</p>
+  <ol class="qs-steps">
+   <li><h2>Provision a sandbox lease</h2><p>POST <code>/api/v1/leases</code> with the operator bearer after this build is deployed. Amounts are integer USD cents. The response contains a lease token and a PayPal sandbox approval URL. Open the URL as the buyer.</p><button class="link-btn copy-code" data-act="copy-code">Copy request</button><pre class="snippet" tabindex="0"><code>curl -X POST "$PASHADHARA_API/v1/leases" \\
+  -H "Authorization: Bearer &lt;operator key&gt;" \\
+  -H "Content-Type: application/json" \\
+  -d '{"buyer_ref":"my-agent","cap_minor":2000,"unsettled_limit_minor":1000}'</code></pre></li>
+   <li><h2>Confirm the authorization</h2><p>The PayPal return callback attempts authorization. Read <code>/api/v1/leases/&lt;lease id&gt;</code> with the lease token and wait for <code>state: active</code> and <code>guaranteed_now: true</code>. An operator can call <code>POST /api/v1/leases/&lt;lease id&gt;/authorize</code> after buyer approval if the callback did not finish. Never infer success from the browser redirect alone.</p></li>
+   <li><h2>Connect the agent</h2><p>Use the Streamable HTTP MCP endpoint at <code>/api/mcp</code>. The current paid tool is <code>summarise</code> at 3 cents, subject to the database tool price. Its input is <code>text</code> and <code>idempotency_key</code>. Make the key with a fresh UUID, a colon and SHA-256 of the tool name, a NUL byte and the exact UTF-8 text. Reuse the key only for the same invocation.</p><button class="link-btn copy-code" data-act="copy-code">Copy MCP settings</button><pre class="snippet" tabindex="0"><code>{
+  "mcpServers": {
+    "pashadhara": {
+      "type": "http",
+      "url": "https://pashadhara.vercel.app/api/mcp",
+      "headers": { "Authorization": "Bearer &lt;lease token&gt;" }
+    }
+  }
+}</code></pre></li>
+   <li><h2>Read the boundary</h2><p>GET <code>/api/v1/leases/&lt;lease id&gt;</code> for <code>hold_available</code>, <code>committed_unsettled</code> and <code>total_captured</code>. GET its <code>/journal</code> for the immutable postings. A served tool commits its price; a later PayPal capture is a different event. A refused MCP tool result returns a structured reason. A missing bearer must return HTTP 401 on protected REST reads.</p></li>
+   </ol><p class="help">Sandbox only. No production money path is offered. The public showcase has a separate lease and should not be used as an integration token. Several contract operations remain reserved and return 503. Due payout recovery uses an operator-only POST, never a read. <a href="/proof">Inspect recorded PayPal evidence</a> or <a href="/api/openapi.json">read the deployed API contract</a>.</p></div>`;
 function initHome(){
-  disposeHero();
-  HD.paused=false; HD.visible=false;
-  heroStill(); howPaint(0);
-  HD.observer=new IntersectionObserver(([entry])=>{
-    if(entry.target!==$("#herocord"))return;
-    HD.visible=entry.isIntersecting;
-    heroPlayback();
-  });
-  HD.observer.observe($("#herocord"));
-  homeLive();
+  howPaint(0);
+  void deskInit();
 }
-/* The first screen shows the real demo lease, read now, so a visitor sees that something is live before clicking. */
-async function homeLive(){
-  if(!$("#homelive"))return;
-  const data=await loadShowcase();
-  const el=$("#homelive"); if(!el||route()!=="home")return;
-  const when=iso=>new Date(iso).toUTCString().replace(/^(\w{3}), (\d+) (\w{3}) \d+ (\d\d:\d\d).*/,"$1 $2 $3, $4 UTC");
-  if(data.mode==="recorded"){
-    el.innerHTML=`<span class="ls-dot rec" aria-hidden="true"></span><span class="ls-main">Showing the saved demo run from <span class="num">${esc(data.recorded_on)}</span>.</span><span class="ls-tag">${tagHtml("recorded","recorded "+data.recorded_on)}</span><a class="ls-go" href="/lease?showcase=1">Open it</a>`;
+
+/* =============================================================
+   The decision desk. One component, two places (home hero, lease page).
+   Three realities, never blurred:
+   live        a real sandbox hold read from /api/showcase; decisions come from our kernel (POST /api/showcase/try posts nothing)
+   simulation  runs in this browser on a sample hold; no request leaves the page
+   (recorded runs live on the proof page; a recorded or ended lease falls back to the simulation, with the reason said)
+   Money is integer cents. A typed dollar amount is parsed with a regex and string split, never a float.
+============================================================= */
+const SIM_CAP=200, DK_MAX=6;
+const DK={data:null,rows:[],spent:0,busy:false,wait:"",err:"",key:"",fresh:false,timer:null};
+const whenUTC=iso=>new Date(iso).toUTCString().replace(/^(\w{3}), (\d+) (\w{3}) \d+ (\d\d:\d\d).*/,(m,a,d,mo,t)=>a+" "+Number(d)+" "+mo+", "+t+" UTC");
+const shortId=id=>{id=String(id||"");return id.length>10?id.slice(0,4)+"\u2026"+id.slice(-4):id};
+const hms=t=>{const d=new Date(t),p=n=>String(n).padStart(2,"0");return p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds())};
+function parseCents(raw){
+  const m=/^\$?\s*(\d{1,7})(?:\.(\d{1,2}))?$/.exec(String(raw).trim());
+  return m?Number(m[1])*100+Number((m[2]||"").padEnd(2,"0")):null;
+}
+const goodCents=v=>Number.isSafeInteger(v)&&v>=0;
+function deskState(){
+  const d=DK.data;
+  if(!d)return {mode:"loading"};
+  const b=d.lease?.balances, a=d.lease?.authorizations?.[0]||{};
+  if(d.mode==="live"&&!d.ended&&b&&goodCents(d.lease.cap_minor)&&goodCents(Number(b.hold_available))&&goodCents(Number(b.committed_unsettled))&&goodCents(Number(b.total_captured))){
+    return {mode:"live",id:d.lease.id,cap:d.lease.cap_minor,F:Number(b.hold_available),A:Number(b.committed_unsettled),C:Number(b.total_captured),pa:a.paypal_authorization_id,honor:a.honor_until,left:Number(d.remaining_calls??0),readAt:d.read_at};
+  }
+  const why=d.ended?`live spending closed ${a.honor_until?whenUTC(a.honor_until):""}`:d.unreachable||d.mode==="live"?"the gateway did not answer":"no live demo lease is configured";
+  return {mode:"sim",cap:SIM_CAP,F:SIM_CAP-DK.spent,A:DK.spent,C:0,why,fixture:d.mode==="fixture",fixtureOn:d.fixture_on};
+}
+function deskLoadRows(key){
+  let j=null; try{j=JSON.parse(sessionStorage.getItem(key)||"null")}catch{}
+  DK.rows=Array.isArray(j?.rows)?j.rows.filter(r=>r&&Number.isSafeInteger(r.t)&&typeof r.text==="string"&&["allowed","refused","none","unknown"].includes(r.v)).slice(0,DK_MAX):[];
+  DK.spent=key==="desk:sim"&&Number.isSafeInteger(j?.spent)&&j.spent>=0&&j.spent<=SIM_CAP?j.spent:0;
+}
+function deskSave(){try{sessionStorage.setItem(DK.key,JSON.stringify({rows:DK.rows,spent:DK.spent}))}catch{}}
+function deskPush(row){DK.rows.unshift({t:Date.now(),...row});DK.rows.length=Math.min(DK.rows.length,DK_MAX);DK.fresh=true;deskSave()}
+function deskHtml(ctx){
+  return `<div class="dk" data-desk="${ctx}">
+   <div class="dk-band" data-dk="band"></div>
+   <div class="dk-bal" data-dk="bal"></div>
+   <div class="dk-ask" data-dk="ask"><h3 class="dk-h" id="dk-h-${ctx}">Your agent asks to spend</h3>
+    <div class="dk-presets" data-dk="presets" role="group" aria-labelledby="dk-h-${ctx}"></div>
+    <form class="dk-form" data-form="desk" novalidate><label class="dk-lab" for="dk-amt">Another amount</label>
+     <div class="dk-fr"><span class="dk-in"><span class="dk-cur" aria-hidden="true">$</span><input id="dk-amt" type="text" inputmode="decimal" autocomplete="off" aria-describedby="dk-err" placeholder="0.05"></span>
+     <button class="btn accent dk-go" type="submit">Check this amount</button></div>
+     <p class="dk-err errtxt" id="dk-err" data-dk="err" role="alert"></p></form></div>
+   <div class="dk-dec"><ol class="dk-list" data-dk="list" aria-live="polite" aria-label="Decisions, newest first"></ol><p class="dk-reset" data-dk="reset"></p></div>
+   <p class="dk-cap help" data-dk="cap"></p></div>`;
+}
+function deskRowHtml(r,seen){
+  let g="";
+  if(r.tag){const k=r.tag+"|"+r.label; g=seen.has(k)?`<span class="dk-gl">${esc(r.label)}</span>`:tagHtml(r.tag,r.label); seen.add(k)}
+  const word=r.v==="allowed"?"Allowed":r.v==="refused"?"Refused":r.v==="unknown"?"Unknown":"Not checked";
+  return `<li class="dk-r is-${r.v}"><span class="dk-t num">${hms(r.t)}</span><span class="dk-a">${r.ask==null?"Agent call":`Asked <span class="num">${fmt(r.ask)}</span>`}</span><b class="dk-v">${word}</b><span class="dk-s">${esc(r.text)}</span>${r.quote?`<q class="dk-quote">${esc(String(r.quote).slice(0,400))}</q>`:""}${g?`<span class="dk-g">${g}</span>`:""}</li>`;
+}
+function paintDesk(){
+  const root=document.querySelector("[data-desk]"); if(!root)return;
+  const st=deskState();
+  const q=k=>root.querySelector(`[data-dk="${k}"]`);
+  const set=(el,html)=>{if(el&&el.innerHTML!==html)el.innerHTML=html};
+  const loading=st.mode==="loading";
+  root.dataset.mode=st.mode;
+  q("ask").inert=loading; q("list").parentElement.inert=loading;
+  if(loading){
+    set(q("band"),`<span class="sk" style="width:15rem"></span>`);
+    set(q("bal"),`<span class="sk" style="width:9rem;height:3rem"></span><span class="sk" style="width:100%;height:16px;margin-top:12px"></span>`);
+    set(q("presets"),""); set(q("list"),""); set(q("reset"),""); set(q("cap"),"");
     return;
   }
-  const b=data.lease.balances, honor=data.lease.authorizations?.[0]?.honor_until;
-  el.innerHTML=data.ended
-    ?`<span class="ls-dot rec" aria-hidden="true"></span><span class="ls-main">The demo hold ended ${honor?esc(when(honor)):""}. The journal is still readable.</span><span class="ls-tag">${tagHtml("computed","journal, hold ended")}</span><a class="ls-go" href="/lease?showcase=1">Open it</a>`
-    :`<span class="ls-dot live" aria-hidden="true"></span><span class="ls-main"><strong class="num">${fmt(Number(b.hold_available))}</strong> free of <span class="num">${fmt(data.lease.cap_minor)}</span> on the demo lease. ${Number(data.remaining_calls??0)} demo calls left.${honor?` Hold honored until ${esc(when(honor))}.`:""}</span><span class="ls-tag">${tagHtml("computed","live journal")}</span><a class="ls-go" href="/lease?showcase=1">Open it</a>`;
+  const key=st.mode==="live"?"desk:"+st.id:"desk:sim";
+  if(key!==DK.key){DK.key=key;deskLoadRows(key)}
+  const live=st.mode==="live", ctx=root.dataset.desk, F=st.F;
+  set(q("band"),live
+    ?`<span class="dk-line"><span class="dk-dot live" aria-hidden="true"></span><strong class="dk-mode">LIVE PAYPAL SANDBOX</strong></span><span class="dk-sub"><span class="nb">${st.pa?`hold <span class="num">${esc(shortId(st.pa))}</span>`:"hold"}${st.honor?",":""}</span>${st.honor?` <span class="nb">honored until <span class="num">${esc(whenUTC(st.honor))}</span></span>`:""}. Kernel journal read ${esc(whenUTC(st.readAt))}; this is not a fresh PayPal GET.</span>`
+    :`${st.fixture?`<span class="dk-line"><span class="dk-dot sim" aria-hidden="true"></span><strong class="dk-mode">SAVED DEMO FIXTURE</strong></span><span class="dk-sub">Sample snapshot from ${esc(st.fixtureOn)}. Raw source unavailable; no current balance or live check. ${esc(st.why)}.</span>`:""}<span class="dk-line"><span class="dk-dot sim" aria-hidden="true"></span><strong class="dk-mode">INTERACTIVE SIMULATION</strong></span><span class="dk-sub">Separate sample <span class="num">${fmt(SIM_CAP)}</span> budget in this browser. Nothing reaches PayPal.${st.fixture?"":` ${esc(st.why)}.`}</span>`);
+  set(q("bal"),ctx==="lease"&&live?"":`<div class="dk-free"><span class="num dk-big">${fmt(F)}</span><span class="dk-unit">free to spend</span></div>
+    <p class="dk-of">of <span class="num">${fmt(st.cap)}</span> held. ${live?`<span class="num">${fmt(st.C)}</span> captured, <span class="num">${fmt(st.A)}</span> owed.`:`<span class="num">${fmt(st.A)}</span> spent in the simulation.`}</p>
+    <div class="dk-bar" aria-hidden="true">${slimSVG({C:st.C,A:st.A,F:st.F,cap:st.cap})}</div>`);
+  const off=DK.busy?' aria-disabled="true"':"";
+  const half=Math.floor(F/2), pre=[{c:3,l:"one tool call"}];
+  if(half>=1&&half!==3&&half!==F+1)pre.push({c:half,l:"about half"});
+  const over=F+1; const dup=pre.findIndex(p=>p.c===over); if(dup>=0)pre.splice(dup,1);
+  pre.push({c:over,l:"one cent over",p:1});
+  const focusI=document.activeElement?.closest?.('[data-dk="presets"]')?document.activeElement.dataset.i:null;
+  set(q("presets"),pre.map((p,i)=>`<button type="button" class="dk-pre${p.p?" primary":""}" data-act="desk-ask" data-c="${p.c}" data-i="${i}"${off}><span class="num dk-pv">${fmt(p.c)}</span><span class="dk-pc">${p.l}</span></button>`).join(""));
+  if(focusI!==null&&document.activeElement===document.body)q("presets").querySelector(`[data-i="${focusI}"]`)?.focus({preventScroll:true});
+  const gobtn=root.querySelector(".dk-go"); if(gobtn)DK.busy?gobtn.setAttribute("aria-disabled","true"):gobtn.removeAttribute("aria-disabled");
+  const inp=root.querySelector("#dk-amt");
+  if(inp){DK.err?inp.setAttribute("aria-invalid","true"):inp.removeAttribute("aria-invalid")}
+  set(q("err"),esc(DK.err));
+  const seen=new Set();
+  const rows=DK.rows.map((r,i)=>{const h=deskRowHtml(r,seen);return i===0&&DK.fresh?h.replace('class="dk-r ','class="dk-r fresh '):h}).join("");
+  set(q("list"),(DK.busy?`<li class="dk-wait">${esc(DK.wait)}</li>`:"")+(rows||(DK.busy?"":`<li class="dk-empty">Pick an amount. The answer comes from the same check that guards the hold.</li>`)));
+  DK.fresh=false;
+  set(q("reset"),!live&&DK.spent>0?`<button type="button" class="link-btn" data-act="desk-reset">Reset the sample hold</button>`:"");
+  set(q("cap"),live
+    ?(ctx==="home"?`These checks run the real kernel against the live hold and post nothing. To make a real paid call, <a href="/lease?showcase=1">open the live demo</a>.`:`These checks run the real kernel against the live hold and post nothing. To make a real paid call, use Run the agent.`)
+    :`This runs in your browser on sample figures. The <a href="/proof">PayPal evidence</a> is read only.`);
+}
+function deskRowFrom(run,c,status,j){
+  const none=text=>({ask:run?null:c,v:"none",text});
+  /* A paid run that did not come back cleanly may have reached the gateway. Unknown beats guess. */
+  const unknown=()=>({ask:null,v:"unknown",text:"The request did not return. The outcome is unknown. The journal below is the record: reload it to see whether a call was charged."});
+  if(!j||typeof j!=="object")return run?unknown():none("The check could not be completed. Nothing was charged.");
+  const price=Number.isSafeInteger(j.price_minor)?j.price_minor:c, rem=j.remaining_minor;
+  if(j.reason){
+    const tag={tag:"computed",label:run?"live journal":"kernel preview, nothing posted"};
+    if(j.reason==="window_ended")return {ask:price,v:"refused",text:"The hold's honor period has ended. Nothing charged.",...tag};
+    if(j.reason==="cap_reached"&&goodCents(rem)&&goodCents(price))return {ask:price,v:"refused",text:`${fmt(price-rem)} over the ${fmt(rem)} free. ${run?"No model was called":"No model would be called"}. Nothing charged.`,...tag};
+    return {ask:price,v:"refused",text:`Refused by the kernel (${String(j.reason).slice(0,40)}). Nothing charged.`,...tag};
+  }
+  if(j.error==="demo_limit")return none("The demo call limit is reached for today. Nothing was charged.");
+  if(j.error==="tool_failed")return j.charged===false||!run?none("The model call failed. Nothing was charged."):unknown();
+  if(j.error==="busy")return j.charged===false||!run?none("The gateway was busy. Nothing was charged. Try again."):unknown();
+  if(status!==200||j.error||!goodCents(rem))return run?unknown():none("The check could not be completed. Nothing was charged.");
+  if(!run&&c>rem)return none("The kernel response did not include a refusal for an amount above the available balance. No decision is shown; nothing was posted.");
+  if(run){
+    const quote=typeof j.result?.summary==="string"?j.result.summary:"";
+    return {ask:price,v:"allowed",text:`Ran summarise. Committed ${fmt(price)} to the journal. ${fmt(rem)} remains available. PayPal capture is separate.`,quote,tag:"computed",label:"kernel journal"};
+  }
+  return {ask:c,v:"allowed",text:`Within the ${fmt(rem)} free. A real call at this price would leave ${fmt(rem-c)}.`,tag:"computed",label:"kernel preview, nothing posted"};
+}
+/* One call path for the live desk: "try" is the non-posting kernel preview, "run" is the real paid agent call. */
+async function showcaseAction(action,c){
+  if(DK.busy)return;
+  const st=deskState(); if(st.mode!=="live")return;
+  const run=action==="run";
+  DK.busy=true; DK.wait=run?"Running the agent against the live hold.":"Asking the kernel."; DK.err=""; paintDesk(); syncRunButton();
+  let row, dropped=false;
+  try{
+    const response=await fetch("/api/showcase/"+action+(run?"":"?price_minor="+encodeURIComponent(c)),{method:"POST",headers:{"Content-Type":"application/json"}});
+    let j=null; try{j=await response.json()}catch{}
+    row=deskRowFrom(run,c,response.status,j);
+    if(row.v==="refused"&&$("#cord")){const wait=refuseFx($("#cord"),true);if(wait)await new Promise(r=>later(r,wait))}
+    dropped=run&&row.v==="allowed";
+  }catch{
+    row=deskRowFrom(run,c,0,null);
+  }
+  deskPush(row);
+  if(run){try{await liveLoad()}catch{}}
+  DK.busy=false;
+  if(current==="lease"&&S.user?.showcase)paintLease(dropped?{dropId:S.calls.length}:{});
+  else paintDesk();
+  syncRunButton();
+}
+function syncRunButton(){
+  const b=document.querySelector('[data-act="showcase-run"]'); if(!b)return;
+  b.disabled=!!DK.busy||!(S.showcase?.remaining_calls>0);
+}
+function deskSim(c){
+  const F=SIM_CAP-DK.spent;
+  if(c<=F){DK.spent+=c; deskPush({ask:c,v:"allowed",text:`Committed ${fmt(c)} in the simulation. ${fmt(F-c)} left.`,tag:"fixture",label:"simulation"})}
+  else deskPush({ask:c,v:"refused",text:`${fmt(c-F)} over the ${fmt(F)} left. Refused before any model call. Nothing charged.`,tag:"fixture",label:"simulation"});
+  paintDesk();
+}
+function deskAsk(c){
+  if(DK.busy||!Number.isSafeInteger(c)||c<1)return;
+  const st=deskState(); if(st.mode==="loading")return;
+  DK.err="";
+  if(st.mode==="sim")deskSim(c); else void showcaseAction("try",c);
+}
+function deskSubmit(){
+  const inp=document.querySelector("#dk-amt"); if(!inp||DK.busy)return;
+  const c=parseCents(inp.value);
+  if(c===null||c<1){
+    DK.err=c===0?"Enter an amount above $0.00.":"Enter dollars and cents, like 0.05. Two decimals at most, and seven digits before the point.";
+    paintDesk(); inp.focus(); return;
+  }
+  DK.err=""; inp.value=""; deskAsk(c);
+}
+function deskReset(){DK.spent=0;DK.rows=[];deskSave();paintDesk()}
+async function deskInit(){
+  paintDesk();
+  let data=await loadShowcase();
+  /* A cold gateway can miss the first read. Ask once more, still showing the skeleton,
+     before settling on the simulation. */
+  if(data.unreachable){
+    DK.data=null; paintDesk();
+    await new Promise(r=>setTimeout(r,2000));
+    if(route()!=="home"||!document.querySelector("[data-desk]"))return;
+    data=await loadShowcase();
+  }
+  if(route()!=="home"||!document.querySelector("[data-desk]"))return;
+  paintDesk();
+  deskSchedule();
+}
+function deskSchedule(){
+  clearTimeout(DK.timer);
+  DK.timer=later(async()=>{
+    if(ac.signal.aborted||route()!=="home")return;
+    await loadShowcase();
+    if(ac.signal.aborted||route()!=="home")return;
+    paintDesk();
+    deskSchedule();
+  },10000);
 }
 
 /* ---------- sign up and log in ---------- */
-const SU_TITLES=["","Create your account","Check your email","Connect PayPal","Set the rules","Approve the hold","Connect your agent"];
-V.flow=()=>`<div class="flow"><aside class="flow-side" id="fs"></aside><section class="flow-main" id="fm" tabindex="-1"></section></div>`;
-const MCP_URL="https://gateway.pashadhara.example/mcp";
-const MASK="pd_test_••••••••••••••••";
-const TOKEN="pd_test_8f3a91c2e5b7440d";
+ const SU_TITLES=["","Sample account","Fixture code","Sample PayPal connection","Set sample rules","Simulate approval","Preview agent settings"];
+V.flow=()=>`${simBand("onboarding prototype. No account is created and nothing reaches PayPal.")}<div class="flow"><aside class="flow-side" id="fs"></aside><section class="flow-main" id="fm" tabindex="-1"></section></div>`;
+const MCP_URL="https://pashadhara.vercel.app/api/mcp";
+const MASK="pd_fake_••••••••••••••••";
+const TOKEN="pd_fake_not_a_real_token";
 function paintFlow(focus){
   const s=S.su, login=s.mode==="login";
   const side=$("#fs"), fm=$("#fm"); if(!side)return;
@@ -1523,36 +1594,36 @@ function paintFlow(focus){
   const sampleItems=[{id:1,c:120,st:"captured"},{id:2,c:75,st:"captured"},{id:3,c:250,st:"captured"},{id:4,c:300,st:"captured"},{id:5,c:40,st:"accrued"},{id:6,c:115,st:"accrued"}];
   const preview=()=>s.step===1?vc({items:sampleItems,cap:2000,C:745,A:155,F:1100}):(s.step<=3?vc({items:[],cap:2000,C:0,A:0,F:0,ghost:true}):vc({items:[],cap:20000,C:0,A:0,F:s.cap}));
   if(s.step===1){
-    sideH=`<div><h2>${login?"Welcome back.":"One approval. A budget your agent cannot break."}</h2><p>${login?"Enter your email and we will send a six digit code. No password to remember.":"Create your account with an email. We send a six digit code instead of asking you to invent a password."}</p></div>${preview(745,190,1065,2000)}`;
-    mainH=`<h1>${login?"Log in":"Create your account"}</h1><p class="sub">${login?"We will email you a code.":"Two fields, then a code. Six short steps to your first lease."}</p>
+     sideH=`<div><h2>${login?"Try the return path.":"One approval. A budget your agent cannot break."}</h2><p>Walk through a sample account flow. No email is sent and no account is created.</p></div>${preview(745,190,1065,2000)}`;
+     mainH=`<h1>${login?"Simulate login":"Try account setup"}</h1><p class="sub">Use any sample email. The next screen shows a visible fixture code.</p>
      <form data-form="su1" novalidate><div class="fgrid">
       ${login?"":`<div class="f"><label for="suName">Your name</label><input id="suName" type="text" autocomplete="name" value="${esc(s.name)}" ${s.err.name?'aria-invalid="true" aria-describedby="suNameE"':""}>${s.err.name?`<div class="errtxt" id="suNameE">${s.err.name}</div>`:""}</div>`}
-      <div class="f"><label for="suEmail">Email</label><input id="suEmail" type="email" inputmode="email" autocomplete="email" value="${esc(s.email)}" ${s.err.email?'aria-invalid="true" aria-describedby="suEmailE"':""}>${s.err.email?`<div class="errtxt" id="suEmailE">${s.err.email}</div>`:`<div class="hint">We only use it to send you the code.</div>`}</div></div>
-      <div class="actions"><button class="btn fill" type="submit">Send the code</button></div></form>
+       <div class="f"><label for="suEmail">Sample email</label><input id="suEmail" type="email" inputmode="email" autocomplete="email" value="${esc(s.email)}" ${s.err.email?'aria-invalid="true" aria-describedby="suEmailE"':""}>${s.err.email?`<div class="errtxt" id="suEmailE">${s.err.email}</div>`:`<div class="hint">Stored only in this browser for the simulation.</div>`}</div></div>
+       <div class="actions"><button class="btn fill" type="submit">Continue to sample code</button></div></form>
      <p class="swap">${login?`New here? <a href="/signup">Create an account</a>`:`Already have an account? <a href="/login">Log in</a>`}</p>
      <p class="help" style="margin-top:var(--s5)">${tagHtml("fixture")} Prototype: no email is sent and no account is stored.</p>`;
   }else if(s.step===2){
-    sideH=`<div><h2>Check your email.</h2><p>We sent a six digit code to <strong>${esc(s.email)}</strong>.</p></div>${preview(0,0,2000,2000)}`;
+     sideH=`<div><h2>Try a sample code.</h2><p>No email was sent to <strong>${esc(s.email)}</strong>. Enter the fixture code shown here.</p></div>${preview(0,0,2000,2000)}`;
     mainH=`<h1>Enter the code</h1><p class="sub">Type or paste all six digits. We check them as soon as you finish.</p>
      <div class="fm-body"><div class="f"><div class="lab" id="clab">Six digit code</div>
       <div class="cboxes ${s.codeErr?"bad":""}" id="cboxes" role="group" aria-labelledby="clab">${[0,1,2,3,4,5].map(i=>`<input inputmode="numeric" pattern="[0-9]*" autocomplete="${i?"off":"one-time-code"}" aria-label="Digit ${i+1}" data-ci="${i}">`).join("")}</div>
       ${s.codeErr?`<div class="errtxt" role="alert">${s.codeErr}</div>`:`<div class="hint">${tagHtml("fixture")} Prototype code: <span class="mono">123456</span></div>`}</div>
-      <div class="actions"><button class="btn" data-act="su-back">Change email</button><button class="btn" data-act="su-resend" id="resend" ${s.resend>0?'aria-disabled="true"':""}>${s.resend>0?`Send a new code in ${s.resend}s`:"Send a new code"}</button></div></div>`;
+       <div class="actions"><button class="btn" data-act="su-back">Change sample email</button><button class="btn" data-act="su-resend" id="resend" ${s.resend>0?'aria-disabled="true"':""}>${s.resend>0?`Reset fixture code in ${s.resend}s`:"Reset fixture code"}</button></div></div>`;
   }else if(s.step===3){
     const p=s.paypal;
-    sideH=`<div><h2>Your card never comes near us.</h2><p>You connect your own PayPal account. You approve every hold on PayPal's page, and you can disconnect it there at any time.</p></div>${preview(0,0,2000,2000)}`;
-    mainH=`<h1>Connect PayPal</h1><p class="sub">Pashadhara places holds on your PayPal account. It cannot move money without a hold you approve.</p>
+     sideH=`<div><h2>Your card never comes near us.</h2><p>A real buyer would approve a PayPal sandbox hold on PayPal's page. This step only simulates that connection.</p></div>${preview(0,0,2000,2000)}`;
+     mainH=`<h1>Simulate PayPal connection</h1><p class="sub">This prototype does not link an account or create a hold.</p>
      <div class="fm-body">
-      ${p==="done"?`<div class="linked"><strong>PayPal sandbox buyer connected</strong><br><span class="help">Account ending 4821 ${tagHtml("fixture")}</span></div>
+       ${p==="done"?`<div class="linked"><strong>Sample buyer connection</strong><br><span class="help">Fixture account ending 4821 ${tagHtml("fixture")}</span></div>
         <div class="actions"><button class="btn fill" data-act="su-next">Continue</button><button class="btn" data-act="su-paypal-reset">Use another account</button></div>`
-      :`${p==="declined"?`<p class="err" role="alert" style="margin-bottom:var(--s4)">PayPal did not connect. Nothing was linked and nothing was held. You can try again.</p>`:""}
-        <div class="actions" style="margin-top:0"><button class="btn fill" data-act="su-paypal" id="ppGo" ${p==="busy"?'aria-busy="true" aria-disabled="true"':""} style="min-width:15rem">${p==="busy"?"Waiting for PayPal":"Connect PayPal sandbox"}</button><button class="btn" data-act="su-paypal-no" ${p==="busy"?'aria-disabled="true"':""}>Cancel at PayPal</button></div>
+       :`${p==="declined"?`<p class="err" role="alert" style="margin-bottom:var(--s4)">The simulated connection was cancelled. Nothing was linked or held.</p>`:""}
+         <div class="actions" style="margin-top:0"><button class="btn fill" data-act="su-paypal" id="ppGo" ${p==="busy"?'aria-busy="true" aria-disabled="true"':""} style="min-width:15rem">${p==="busy"?"Simulating connection":"Simulate connection"}</button><button class="btn" data-act="su-paypal-no" ${p==="busy"?'aria-disabled="true"':""}>Simulate cancel</button></div>
         <p class="help" style="margin-top:var(--s4)">${tagHtml("fixture")} This opens no real PayPal page in the prototype.</p>`}
       <p class="swap"><button class="link-btn" data-act="su-back">Back</button></p></div>`;
   }else if(s.step===4){
     const per=Math.min(s.per,s.cap);
     sideH=`<div><h2>Rules the model cannot argue with.</h2><p>The gateway checks these on every call. They are not left to the model.</p></div>${preview(0,0,s.cap,s.cap)}`;
-    mainH=`<h1>Set the rules</h1><p class="sub">Pick a total budget and the most one call may cost. You can void at any time.</p>
+     mainH=`<h1>Set sample rules</h1><p class="sub">Pick a total budget and the most one call may cost. The sample lease can be voided in this browser.</p>
      <div class="fm-body"><div class="fgrid">
       <div class="f"><div class="lab" id="capL">Total budget</div><div class="chips" role="group" aria-labelledby="capL">${[1000,2000,5000,10000].map(v=>`<button data-act="su-cap" data-v="${v}" aria-pressed="${s.cap===v&&!s.customCap}">${fmt(v)}</button>`).join("")}</div>
         <div style="margin-top:var(--s3);max-width:12rem"><label class="lab" for="capC" style="font-weight:500">Or type dollars</label><input id="capC" type="text" inputmode="numeric" autocomplete="off" value="${esc(s.customCap)}" placeholder="5 to 200" ${s.err.cap?'aria-invalid="true" aria-describedby="capE"':""}>${s.err.cap?`<div class="errtxt" id="capE">${s.err.cap}</div>`:""}</div></div>
@@ -1563,17 +1634,17 @@ function paintFlow(focus){
       <div class="actions"><button class="btn fill" data-act="su-rules">Review and approve</button><button class="btn" data-act="su-back">Back</button></div></div>`;
   }else if(s.step===5){
     const a=s.approve, per=Math.min(s.per,s.cap);
-    sideH=`<div><h2>One hold. That is the whole budget.</h2><p>PayPal holds ${fmt(s.cap)} on your account. You are charged only for calls that are captured, and you can void the hold at any time.</p></div>${preview(0,0,s.cap,s.cap)}`;
-    mainH=`<h1>Approve the hold</h1><p class="sub">Read this once. You can change nothing after the hold except voiding it.</p>
+    sideH=`<div><h2>One hold. That is the whole budget.</h2><p>In this sample, a PayPal hold of ${fmt(s.cap)} would bound the agent. Nothing is held here. Only captured calls become a PayPal charge. Hosted lease closing is not wired yet.</p></div>${preview(0,0,s.cap,s.cap)}`;
+     mainH=`<h1>Simulate approval</h1><p class="sub">Review the sample authority before opening its lease.</p>
      <div class="fm-body"><dl class="summ"><dt>Hold</dt><dd class="num">${fmt(s.cap)}</dd><dt>One call, at most</dt><dd class="num">${fmt(per)}</dd><dt>May buy</dt><dd>${esc(s.cats.join(", "))}</dd><dt>Honored for</dt><dd>72 hours, then best effort</dd><dt>Charged today</dt><dd class="num">$0.00</dd></dl>
-      ${a==="declined"?`<p class="err" role="alert" style="margin-top:var(--s5)">PayPal did not approve the hold. Nothing was held and nothing was charged. You can try again.</p>`:""}
+       ${a==="declined"?`<p class="err" role="alert" style="margin-top:var(--s5)">The simulated approval was declined. Nothing was held or charged.</p>`:""}
       <p class="notice" role="note">${tagHtml("fixture")} The approval is simulated and makes no PayPal call.</p>
-      <div class="actions"><button class="btn accent" data-act="su-approve" id="apGo" ${a==="busy"?'aria-busy="true" aria-disabled="true"':""} style="min-width:15.5rem">${a==="busy"?"Waiting for PayPal":`Approve ${fmt(s.cap)} hold`}</button><button class="btn" data-act="su-approve-no" ${a==="busy"?'aria-disabled="true"':""}>Decline in PayPal</button></div>
+       <div class="actions"><button class="btn accent" data-act="su-approve" id="apGo" ${a==="busy"?'aria-busy="true" aria-disabled="true"':""} style="min-width:15.5rem">${a==="busy"?"Simulating approval":`Simulate ${fmt(s.cap)} approval`}</button><button class="btn" data-act="su-approve-no" ${a==="busy"?'aria-disabled="true"':""}>Simulate decline</button></div>
       <p class="swap"><button class="link-btn" data-act="su-back">Back to the rules</button></p></div>`;
   }else{
     const t=s.test;
-    sideH=`<div><h2>Give it the key, not the card.</h2><p>Your agent gets a gateway address and a token. It can only spend inside the rules you set, and you can void the lease to stop it.</p></div>${preview(0,0,s.cap,s.cap)}`;
-    mainH=`<h1>Connect your agent</h1><p class="sub">Paste this into your agent's tool settings. It works with any client that speaks MCP over HTTP.</p>
+     sideH=`<div><h2>Give it the key, not the card.</h2><p>A real agent would receive a lease-scoped token. This screen uses a fake token and sends no paid calls.</p></div>${preview(0,0,s.cap,s.cap)}`;
+     mainH=`<h1>Preview agent settings</h1><p class="sub">This shows the shape of MCP settings. The token below is fake and cannot authorize a tool.</p>
      <div class="fm-body"><pre class="snip" tabindex="0" aria-label="Agent connection settings">{
   "mcpServers": {
     "pashadhara": {
@@ -1585,9 +1656,9 @@ function paintFlow(focus){
 }</pre>
       <div class="actions" style="margin-top:var(--s3)"><button class="btn" data-act="su-reveal" aria-pressed="${s.reveal}">${s.reveal?"Hide token":"Reveal token"}</button><button class="btn" data-act="su-copy">${s.copied?"Copied":"Copy settings"}</button></div>
       <p class="help" style="margin-top:var(--s3)">${tagHtml("fixture")} This address and token are placeholders. Treat a real token like a password.</p>
-      <div style="margin-top:var(--s6)"><button class="btn" data-act="su-test" ${t==="busy"?'aria-busy="true" aria-disabled="true"':""}>${t==="busy"?"Calling":"Send a test call"}</button>
-       ${t==="ok"?`<div class="testres" role="status"><strong>The gateway answered.</strong> A test call, nothing spent, $0.00 captured ${tagHtml("fixture")}</div>`:""}</div>
-      <div class="actions"><button class="btn fill" data-act="su-finish">Open my lease</button><button class="btn" data-act="su-back">Back</button></div></div>`;
+       <div style="margin-top:var(--s6)"><button class="btn" data-act="su-test" ${t==="busy"?'aria-busy="true" aria-disabled="true"':""}>${t==="busy"?"Simulating":"Simulate a test call"}</button>
+       ${t==="ok"?`<div class="testres" role="status"><strong>Simulated answer.</strong> This prototype made no call. Nothing spent, $0.00 captured ${tagHtml("fixture")}</div>`:""}</div>
+       <div class="actions"><button class="btn fill" data-act="su-finish">Open sample lease</button><button class="btn" data-act="su-back">Back</button></div></div>`;
   }
   const moved=fm.dataset.step&&fm.dataset.step!==String(s.step);
   const oldFree=$('.vc [data-part="free"]',side);
@@ -1628,18 +1699,22 @@ function siteClick(e){
   const a=el.dataset.act, s=S.su;
   if(el.getAttribute("aria-disabled")==="true"&&a!=="how"){e.preventDefault();return true}
   switch(a){
-    case "showcase-run": case "showcase-try": e.preventDefault(); void showcaseAction(a==="showcase-run"?"run":"try"); return true;
+    case "showcase-run": e.preventDefault(); if(!el.disabled)void showcaseAction("run"); return true;
+    case "desk-ask": e.preventDefault(); deskAsk(+el.dataset.c); return true;
+    case "desk-reset": e.preventDefault(); deskReset(); return true;
+    case "copy-code": {const code=el.nextElementSibling?.querySelector("code")?.textContent;if(!code)return true;
+      if(!navigator.clipboard){say("Clipboard unavailable. Select the code to copy it.");return true}
+      navigator.clipboard.writeText(code).then(()=>{el.textContent="Copied";say("Code copied.");later(()=>{if(el.isConnected)el.textContent=code.startsWith("curl")?"Copy request":"Copy MCP settings"},2500)},()=>say("Clipboard unavailable. Select the code to copy it."));return true}
     case "sample": case "sample-proof": e.preventDefault(); store.del(LIVE_KEY); resetSample(); S.user={name:"Sample",sample:true}; go(a==="sample"?"/lease":"/proof"); return true;
     case "sound": {const on=!soundOn();try{localStorage.setItem(SOUND_KEY,on?"on":"off")}catch(e){}syncSound();if(on){audio();sfx("drop")}return true}
     case "theme": {document.body.classList.add("instant");later(()=>document.body.classList.remove("instant"),80);const d=!darkView();try{localStorage.setItem(THEME_KEY,d?"dark":"light")}catch(e){}el.setAttribute("aria-pressed",String(d));el.textContent=d?"Light view":"Dark view";setGround();return true}
     case "signout": stopRun(); store.del(LIVE_KEY); S.user=null; S.su=suFresh("signup"); go("/",true); say("Signed out."); return true;
     case "read-cord": S.ui.hint=!S.ui.hint; paintReadout(); return true;
-    case "hero-pause": {const p=!HD.paused;HD.paused=p;el.textContent=p?"Play the demo":"Pause the demo";el.setAttribute("aria-pressed",String(p));heroPlayback();return true}
     case "how": howPaint(+el.dataset.i); el.focus(); return true;
     case "su-back": if(s.paypal==="busy"||s.approve==="busy")return true; if(s.step===2){clearInterval(resendTimer)} suGo(s.mode==="login"?1:Math.max(1,s.step-1)); return true;
-    case "su-resend": startResend(); say("A new code was sent."); paintFlow("#resend"); return true;
+    case "su-resend": startResend(); say("Fixture code reset. No email was sent."); paintFlow("#resend"); return true;
     case "su-next": suGo(s.step+1); return true;
-    case "su-paypal": if(s.paypal==="busy")return true; s.paypal="busy"; paintFlow("#ppGo"); later(()=>{if(S.su.paypal!=="busy"||current!=="flow")return;S.su.paypal="done";paintFlow("h1");say("PayPal connected.")},1200); return true;
+    case "su-paypal": if(s.paypal==="busy")return true; s.paypal="busy"; paintFlow("#ppGo"); later(()=>{if(S.su.paypal!=="busy"||current!=="flow")return;S.su.paypal="done";paintFlow("h1");say("Sample connection ready. No PayPal account was linked.")},1200); return true;
     case "su-paypal-no": if(s.paypal==="busy")return true; s.paypal="declined"; paintFlow("#ppGo"); return true;
     case "su-paypal-reset": s.paypal="idle"; paintFlow("#ppGo"); return true;
     case "su-cap": s.cap=+el.dataset.v; s.customCap=""; s.err.cap=""; if(s.per>s.cap)s.per=Math.min(500,s.cap); paintFlow(`[data-act="su-cap"][data-v="${el.dataset.v}"]`); return true;
@@ -1650,21 +1725,22 @@ function siteClick(e){
       if(s.customCap){const n=Number(s.customCap);if(!Number.isInteger(n)||n<5||n>200){s.err.cap="Type a whole number of dollars from 5 to 200, or pick one above.";paintFlow("#capC");return true}s.cap=n*100;if(s.per>s.cap)s.per=Math.min(500,s.cap)}
       if(!s.cats.length){s.err.cats="Choose at least one kind of tool, or the agent could buy nothing.";paintFlow();return true}
       suGo(5); return true;}
-    case "su-approve": if(s.approve==="busy")return true; s.approve="busy"; paintFlow("#apGo"); later(()=>{if(S.su.approve!=="busy"||current!=="flow")return;S.su.approve="done";suGo(6);say("Approved. "+fmt(S.su.cap)+" is held.");approveFx($("#fs .vc"))},1200); return true;
+    case "su-approve": if(s.approve==="busy")return true; s.approve="busy"; paintFlow("#apGo"); later(()=>{if(S.su.approve!=="busy"||current!=="flow")return;S.su.approve="done";suGo(6);say("Sample approval complete. No PayPal hold was created.");approveFx($("#fs .vc"))},1200); return true;
     case "su-approve-no": if(s.approve==="busy")return true; s.approve="declined"; paintFlow("#apGo"); return true;
     case "su-reveal": s.reveal=!s.reveal; paintFlow('[data-act="su-reveal"]'); return true;
     case "su-copy": {const txt=`{\n  "mcpServers": {\n    "pashadhara": {\n      "type": "http",\n      "url": "${MCP_URL}",\n      "headers": { "Authorization": "Bearer ${TOKEN}" }\n    }\n  }\n}`;
-      (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).catch(()=>{}).finally(()=>{s.copied=true;paintFlow('[data-act="su-copy"]');say("Settings copied.");later(()=>{S.su.copied=false;if(current==="flow"&&S.su.step===6)paintFlow()},2500)}); return true}
-    case "su-test": if(s.test==="busy")return true; s.test="busy"; paintFlow('[data-act="su-test"]'); later(()=>{if(S.su.test!=="busy"||current!=="flow")return;S.su.test="ok";paintFlow('[data-act="su-test"]');say("The gateway answered.")},900); return true;
+      (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(()=>{s.copied=true;paintFlow('[data-act="su-copy"]');say("Fixture settings copied.");later(()=>{S.su.copied=false;if(current==="flow"&&S.su.step===6)paintFlow()},2500)},()=>say("Clipboard unavailable. Select the settings to copy them.")); return true}
+    case "su-test": if(s.test==="busy")return true; s.test="busy"; paintFlow('[data-act="su-test"]'); later(()=>{if(S.su.test!=="busy"||current!=="flow")return;S.su.test="ok";paintFlow('[data-act="su-test"]');say("Simulated answer ready. No gateway call was made.")},900); return true;
     case "su-finish": {
-      CAP=s.cap; S.user={name:s.name||"You",email:s.email}; S.status="active"; S.calls=[]; S.q=0; S.nextId=1; S.clock=9*60; S.log=[]; S.refused=0; S.settles=[]; S.voided=null;
+      CAP=s.cap; S.user={name:s.name||"You",email:s.email,sample:true}; S.status="active"; S.calls=[]; S.q=0; S.nextId=1; S.clock=9*60; S.log=[]; S.refused=0; S.settles=[]; S.voided=null;
       S.rules={per:Math.min(s.per,s.cap),cats:[...s.cats]}; S.ui.sel=null;  S.ui.settleDone=null; S.ui.settleN=null; S.ui.voidOpen=false; stopRun();
-      go("/lease"); say("Your lease is open."); return true;}
+      go("/lease"); say("Sample lease is open. No PayPal hold exists."); return true;}
   }
   return false;
 }
 on(document,"submit",e=>{
   const f=e.target.closest("form[data-form]"); if(!f)return; e.preventDefault();
+  if(f.dataset.form==="desk"){deskSubmit();return}
   if(f.dataset.form==="su1"){
     const s=S.su, login=s.mode==="login"; s.err={};
     s.name=($("#suName")?.value||"").trim(); s.email=($("#suEmail")?.value||"").trim();
@@ -1683,6 +1759,7 @@ on(document,"input",e=>{
     if(S.su.codeErr){S.su.codeErr="";$("#cboxes").classList.remove("bad");const er=$("#fm .errtxt");if(er)er.remove()}
     if(all.every(x=>x.value))later(verifyCode,200);
   }
+  if(t.id==="dk-amt"&&DK.err){DK.err="";paintDesk()}
   if(t.id==="capC"){S.su.customCap=t.value.replace(/\D/g,"").slice(0,3);t.value=S.su.customCap}
 });
 on(document,"paste",e=>{
@@ -1759,18 +1836,20 @@ function setGround(){
 function mount(){
   liveTake();
   const r=route();
+  if(r!=="home")clearTimeout(DK.timer);
   if(r==="lease"&&new URLSearchParams(location.search).get("showcase")==="1"&&!location.hash)enterShowcase();
   const v=(r==="home")?"home":(r==="signup"||r==="login")?"flow":(APP_ROUTES.includes(r)?r:"home");
   if(r!=="home"&&v==="home")history.replaceState(null,"","/");
-  if(APP_ROUTES.includes(v)&&!S.user&&v!=="proof"){go("/",true);return}
+  if(!S.user&&v==="lease")enterShowcase();
+  if(APP_ROUTES.includes(v)&&!S.user&&!(["proof","escrow","quickstart"].includes(v))){go("/lease",true);return}
   if(S.user&&S.user.live&&(v==="settle"||v==="approve")){go("/lease",true);return}
   if(S.status==="none"&&["lease","escrow","settle"].includes(v)){go("/approve",true);return}
   const captured=v==="lease"&&current==="settle"?S.ui.settleDone?.ids:null;
   leaseObserver?.disconnect();
-  if(current!==v){stopRun();S.ui.voidOpen=false;disposeHero();clearInterval(resendTimer);if(S.ui.approve==="loading"){clearTimeout(S.approveTimer);S.ui.approve="idle"}}
+  if(current!==v){stopRun();S.ui.voidOpen=false;clearInterval(resendTimer);if(S.ui.approve==="loading"){clearTimeout(S.approveTimer);S.ui.approve="idle"}}
   if(v==="flow"&&(current!=="flow"||S.su.mode!==r))S.su=suFresh(r);
   current=v;
-  const siteProof=v==="proof"&&!S.user;
+  const siteProof=(["proof","escrow","quickstart"].includes(v))&&!S.user;
   const mode=v==="home"||siteProof?"site":v==="flow"?"flow":"app";
   document.body.classList.toggle("lease",v==="lease");
   document.body.dataset.mode=mode;setGround();
@@ -1779,10 +1858,10 @@ function mount(){
   else if(v==="flow"){main.innerHTML=V.flow();paintFlow(mount.once?"h1":null)}
   else{
     renderChrome(siteProof?"site":"app",v);
-    document.title=({lease:"Lease",approve:"New lease",escrow:"Escrow",settle:"Settle",proof:"Proof"})[v]+" | Pashadhara";
+    document.title=({lease:"Lease",approve:"New lease",escrow:"Escrow",settle:"Settle",proof:"Proof",quickstart:"Developer quickstart"})[v]+" | Pashadhara";
     const waitLive=Boolean(S.user&&S.user.live&&v==="lease"&&!S.liveReady);
     main.innerHTML=waitLive?`<div class="wrap lease-skel" role="status" aria-label="Reading the demo lease"><span class="sk-line sk-h1"></span><span class="sk-line sk-sub"></span><span class="sk-cord"></span><div class="sk-row"><span class="sk-line"></span><span class="sk-line"></span><span class="sk-line"></span></div><span class="sr">Reading the demo lease.</span></div>`:V[v]();
-    if(!waitLive&&(v==="lease"||v==="escrow"||v==="settle"))main.insertAdjacentHTML("afterbegin",leaseTabs(v));
+    if(!waitLive&&(v==="lease"||v==="settle"||(v==="escrow"&&S.user)))main.insertAdjacentHTML("afterbegin",leaseTabs(v));
     if(waitLive){liveLoad().then(ok=>{if(current!=="lease"||!S.user||!S.user.live)return;if(ok){S.liveReady=true;S.liveChanged=false;mount()}else $("#main").innerHTML=`<div class="wrap"><p class="sub" role="alert">${esc(S.liveErr)}</p></div>`})}
     else if(v==="lease"){
       if(S.user&&S.user.live)liveStart();
@@ -1828,7 +1907,7 @@ on(document,"click",e=>{
       voidNow(); break;}
     case "approveGo": if(S.ui.approve==="loading")break; S.ui.approve="loading"; $("#main").innerHTML=V.approve();
       S.approveTimer=later(()=>{if(S.ui.approve!=="loading")return;S.status="active";S.calls=[];S.q=0;S.nextId=1;S.clock=9*60;S.log=[];S.settles=[];S.voided=null;S.ui.approve="idle";S.ui.sel=null;S.ui.settleDone=null;S.ui.settleN=null;
-        say("Approved. "+fmt(CAP)+" is held.");go("/lease");approveFx($("#cord"));},1100); break;
+        say("Sample lease approved. No PayPal hold exists.");go("/lease");approveFx($("#cord"));},1100); break;
     case "approveNo": if(S.ui.approve==="loading")break; S.ui.approve="declined"; $("#main").innerHTML=V.approve(); $("#approveGo").focus(); break;
     case "resetAll": S.status="none";S.ui.approve="idle";S.calls=[];S.voided=null;stopRun();setGround();$("#main").innerHTML=V.approve();renderNav("approve");break;
     case "fewest": if(t.closest("button").getAttribute("aria-disabled")==="true")break; S.ui.settleN=1; $("#nr").value=1; paintSettleLive(accruedCalls(),accruedCalls().reduce((a,k)=>a+k.c,0),true); break;
@@ -1882,5 +1961,5 @@ on(document,"pointerout",e=>{
 restore();
 on(window,"pagehide",save);
 mount();
-return ()=>{ac.abort();timeouts.forEach(clearTimeout);timeouts.clear();stopRun();disposeHero();leaseObserver?.disconnect();clearInterval(resendTimer);clearTimeout(S.approveTimer);["hdr","main","ftr","live"].forEach(id=>{const n=document.getElementById(id);if(n)n.innerHTML=""});document.body.removeAttribute("data-mode");document.body.classList.remove("lease")};
+return ()=>{ac.abort();timeouts.forEach(clearTimeout);timeouts.clear();stopRun();leaseObserver?.disconnect();clearInterval(resendTimer);clearTimeout(S.approveTimer);["hdr","main","ftr","live"].forEach(id=>{const n=document.getElementById(id);if(n)n.innerHTML=""});document.body.removeAttribute("data-mode");document.body.classList.remove("lease")};
 }

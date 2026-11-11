@@ -33,12 +33,13 @@ export class Database {
     return this.pool.end();
   }
 
-  async transaction<T>(leaseId: string | null, work: (db: Tx, state: LeaseState | null) => Promise<T>): Promise<T> {
+  async transaction<T>(leaseId: string | null, work: (db: Tx, state: LeaseState | null) => Promise<T>, isolation: 'read committed' | 'repeatable read' = 'read committed'): Promise<T> {
+    if (leaseId !== null && isolation !== 'read committed') throw new Error('Lease writes require read committed isolation');
     for (let attempt = 0; ; attempt++) {
       const db = await this.pool.connect();
       let discard = false;
       try {
-        await db.query('begin isolation level read committed');
+        await db.query(`begin isolation level ${isolation}`);
         await db.query('set local role pashadhara_app');
         await db.query("set local time zone 'UTC'");
         const identity = await one<{ session_user: string; current_user: string }>(

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { CordApp } from "../../components/cord-app";
 
 const TITLES: Record<string, string> = {
-  "": "Pashadhara | Your agent can spend $20.00. Not $20.01.",
+  "": "Pashadhara | A budget your agent cannot break",
   signup: "Create your account | Pashadhara",
   login: "Log in | Pashadhara",
   lease: "Lease | Pashadhara",
@@ -11,6 +11,7 @@ const TITLES: Record<string, string> = {
   escrow: "Escrow | Pashadhara",
   settle: "Settle | Pashadhara",
   proof: "Proof | Pashadhara",
+  quickstart: "Developer quickstart | Pashadhara",
 };
 type Props = { params: Promise<{ path?: string[] }> };
 

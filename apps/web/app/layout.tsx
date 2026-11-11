@@ -8,7 +8,7 @@ const ui = Familjen_Grotesk({ subsets: ["latin"], weight: ["400", "500", "600", 
 const data = Spline_Sans_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--nf-data", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Pashadhara | Your agent can spend $20.00. Not $20.01.",
+  title: "Pashadhara | A budget your agent cannot break",
   description: "One PayPal hold becomes a spending limit enforced by a database, not by the model.",
 };
 

@@ -1,11 +1,11 @@
 openapi: 3.1.0
 info:
   title: PASHADHARA API
-  version: 0.5.0
+  version: 0.5.2
   summary: A PayPal authorization hold as an agent's spending budget, with a deterministic money kernel.
   description: |
     All amounts are integer minor units (USD cents). All provenance fields use measured, computed or fixture.
-    Sandbox only. The MCP endpoint at /mcp exposes the same paid tools as /v1/tools/{toolId}/call.
+    Sandbox only. Hosted operations are lease create, authorize, read, journal, tool price read, seller create, escrow create/read/deliver, and the metered MCP tool at /mcp. Other operations in this contract are reserved and return 503 in the hosted deployment.
   license:
     name: MIT
     identifier: MIT
@@ -45,7 +45,7 @@ paths:
     post:
       tags: [leases]
       operationId: createLease
-      security: []
+      security: [{ adminKey: [] }]
       summary: Create a lease and its PayPal authorize-intent order. Returns the buyer approval link.
       requestBody:
         required: true
@@ -58,6 +58,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/LeaseCreated' }
+        '401': { $ref: '#/components/responses/Problem' }
         '422': { $ref: '#/components/responses/Problem' }
   /v1/leases/{leaseId}:
     get:
@@ -85,6 +86,24 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Lease' }
         '409': { $ref: '#/components/responses/Problem' }
+  /v1/leases/{leaseId}/recover-payouts:
+    post:
+      tags: [jobs]
+      operationId: recoverPayouts
+      security: [{ adminKey: [] }]
+      summary: Queue a recovery sweep for due sandbox payouts after a worker interruption. May call PayPal. Operator only.
+      parameters: [{ $ref: '#/components/parameters/LeaseId' }]
+      responses:
+        '202':
+          description: Recovery sweep queued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [queued] }
+        '401': { $ref: '#/components/responses/Problem' }
   /v1/leases/{leaseId}/settle:
     post:
       tags: [leases]
@@ -475,7 +494,7 @@ components:
     adminKey:
       type: http
       scheme: bearer
-      description: Operator credential from the environment. Required for seller creation and fault injection. Sandbox only.
+      description: Operator credential from the environment. Required for lease and seller creation and fault injection. Sandbox only.
   parameters:
     LeaseId: { name: leaseId, in: path, required: true, schema: { type: string, format: uuid } }
     JobId: { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }

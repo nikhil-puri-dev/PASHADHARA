@@ -64,6 +64,23 @@ test('protected routes fail closed without an authenticated principal', async ()
   const app = createRoutes(contract, {}, async () => null);
   assert.equal((await app.request(`http://localhost/api/v1/leases/${uuid}`)).status, 401);
 });
+test('lease creation requires an admin bearer before the PayPal order handler', async () => {
+  let called = false;
+  const app = createRoutes(contract, { createLease: async () => { called = true; return { status: 201, body: {} }; } }, async () => null);
+  const response = await app.request('http://localhost/api/v1/leases', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ buyer_ref: 'fixture', cap_minor: 2000 }),
+  });
+  assert.equal(response.status, 401);
+  assert.equal(called, false);
+});
+test('payout recovery requires an admin bearer before dispatch', async () => {
+  let called = false;
+  const app = createRoutes(contract, { recoverPayouts: async () => { called = true; return { status: 202, body: { status: 'queued' } }; } }, async () => null);
+  const response = await app.request(`http://localhost/api/v1/leases/${uuid}/recover-payouts`, { method: 'POST' });
+  assert.equal(response.status, 401);
+  assert.equal(called, false);
+});
 test('oversize job acceptance is rejected before the kernel reserves funds', async () => {
   let called = false;
   const app = createRoutes(contract, { createJob: async () => { called = true; return { status: 201 }; } }, async () => ({}));

@@ -75,7 +75,6 @@ export function escrowFlow(options: { db: Database; paypal: Gateway; judges: Jud
 
   const getJob: RouteHandler = async ({ params }) => {
     const job = await readJob(params.jobId!);
-    if (job) sweep(job.lease_id);
     return job ? { status: 200, body: job } : problem(404, 'Job not found');
   };
 

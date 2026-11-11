@@ -296,25 +296,8 @@ body[data-mode="site"] .bar{position:relative;z-index:3}
 .lede{font-size:clamp(1.0625rem,1.5vw,1.3125rem);max-width:36rem;margin-top:var(--s5)}
 
 /* hero: the cord is the hero. Headline and cord share the first screen. */
-.hero{padding-top:var(--s4)}
-.herotop{display:block}
-.hero h1{font-size:clamp(2.4rem,5.2vw,4.5rem);max-width:none;letter-spacing:-.03em;text-wrap:balance}
-.hero .side{display:flex;justify-content:space-between;align-items:center;gap:var(--s4) var(--s5);margin-top:var(--s4);flex-wrap:wrap}
-.hero .lede{font-size:1.0625rem;max-width:24rem;margin-top:0}
-.hero .ctas{display:flex;gap:var(--s3);flex-wrap:wrap;margin:0;align-items:center}
-.hero .ctas .btn{min-height:48px;padding-inline:var(--s4);font-size:1rem}
-.hero .ctas .tert{min-height:44px;display:inline-flex;align-items:center;padding-inline:var(--s2);font-size:.9375rem}
-.herocord{margin-top:var(--s4)}
-.herocord svg{display:block;width:100%;height:auto;overflow:visible}
-.herolog{min-height:2.4rem;padding-top:var(--s3);color:var(--umber);font-size:.9375rem}
-.herolog strong{color:var(--walnut)}
-.herotools{display:flex;justify-content:flex-start}
-.herotools .link-btn{font-size:.9375rem;color:var(--umber)}
 @media (max-width:900px){
-  .hero .side{display:block}
-  .hero .ctas{margin-top:var(--s4)}
 }
-@media (max-width:720px){.herolog{min-height:5.6rem;row-gap:var(--s2);align-content:start;flex-wrap:wrap}.herolog.trow{flex-wrap:wrap}}
 
 /* one dark band, read by evening light: our own measurement leads */
 .why{background:var(--walnut);color:var(--cotton);padding-block:var(--s8)}
@@ -446,11 +429,9 @@ pre.snip{font:400 .9375rem/1.6 var(--font-data);background:var(--walnut);color:v
   .flow-side{padding-block:var(--s6);gap:var(--s5)}
   .flow-main{padding-block:var(--s6)}
   .sect,.why,.close{padding-block:var(--s8)}
-  .hero{padding-top:var(--s4)}
 }
 @media (max-width:720px){
   body[data-mode="site"] .bar nav{display:none}
-  .herocord{max-width:340px}
   .stage-v{padding:var(--s4)}
   .stage-v svg{height:min(64vh,460px)}
   .cboxes input{width:2.8rem;height:3.6rem}
@@ -496,7 +477,6 @@ main svg,.slimcord svg{color:var(--walnut)}
   .acts .link-btn.so,.acts .who,.acts .nav-login{padding:0 var(--s2);letter-spacing:.06em}
 }
 .why h2{max-width:24ch}
-.hero{padding-top:var(--s5)}
 @media (max-width:720px){
   body[data-mode="site"] .acts .nav-login{display:none}
   .brand .word{font-size:1.0625rem;letter-spacing:.16em}
@@ -510,8 +490,8 @@ footer .tag{margin-inline:.3em}
 .pen{transform-box:fill-box;transform-origin:50% 0}
 .gl{opacity:0;pointer-events:none}
 body[data-ground="pearl"] .gl{opacity:.36}
-.cordtools,.herotools{display:flex;gap:var(--s4);flex-wrap:wrap}
-.cordtools .link-btn,.herotools .link-btn{font-size:.9375rem;color:var(--umber)}
+.cordtools{display:flex;gap:var(--s4);flex-wrap:wrap}
+.cordtools .link-btn{font-size:.9375rem;color:var(--umber)}
 .cordtools{justify-content:flex-end;margin-top:var(--s1)}
 .btn.hold{position:relative;gap:var(--s2);user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none}
 .hold .ring{width:24px;height:24px;flex:none;transform:rotate(-90deg);color:inherit}
@@ -524,7 +504,7 @@ body[data-ground="pearl"] .gl{opacity:.36}
   body,.band,footer{transition:background-color 800ms var(--ease-out)}
   body.instant,body.instant .band,body.instant footer{transition:none}
   /* Cancer tide: one slow breath, the cord only, nothing else idle */
-  #cord>svg,#herocord>svg{animation:breathe 8s ease-in-out infinite}
+  #cord>svg{animation:breathe 8s ease-in-out infinite}
 }
 @keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(1px)}}
 
@@ -637,8 +617,7 @@ body[data-theme="dark"]{--danger:#E58AA0}
 .key>span{display:inline-flex;align-items:center;white-space:nowrap}
 .key .sw{display:inline-block;width:18px;height:10px;border:1px solid var(--walnut);margin-right:6px}
 .key .sw.gold{background:#C8A24A}.key .sw.owed{background:#F3EFE2}.key .sw.free{background:#8C1D38}
-.herotools,.cordtools{align-items:center}
-.herotools .key{order:-1;margin-right:var(--s5)}
+.cordtools{align-items:center}
 .cordtools{justify-content:space-between}
 /* the approval notice reads before the button */
 .notice{margin-top:var(--s5);padding:var(--s3) var(--s4);background:var(--lint);display:inline-block;max-width:34rem}

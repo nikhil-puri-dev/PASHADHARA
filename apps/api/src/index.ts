@@ -54,7 +54,6 @@ app.all('*', async c => {
     const { OPENAI_API_KEY: openai, ANTHROPIC_API_KEY: anthropic, AI_SPEND_LIMIT_USD: spendLimit } = process.env;
     const budget = Math.floor(Number(spendLimit) * 100 * 0.8);
     const aiEnabled = process.env.AI_ENABLED !== 'false';
-    const reads = readHandlers(db);
     const escrow = paypal ? escrowFlow({
       db, paypal, waitUntil, budgetCents: Number.isSafeInteger(budget) && budget > 0 ? BigInt(budget) : 0n,
       judges: aiEnabled && openai && anthropic ? escrowJudges({ openai, anthropic }) : undefined,
@@ -67,10 +66,9 @@ app.all('*', async c => {
       tools: [tool],
       webhook: paypal && webhookId ? { webhookId, paypal, kernel: webhookStore(db) } : undefined,
       handlers: {
-        ...(escrow && { getLease: async input => {
-          const result = await reads.getLease!(input);
-          if (result.status === 200) escrow.sweep(input.params.leaseId!);
-          return result;
+        ...(escrow && { recoverPayouts: async input => {
+          escrow.sweep(input.params.leaseId!);
+          return { status: 202, body: { status: 'queued' } };
         } }),
         ...(approval && { createLease: approval.create, authorizeLease: approval.authorize }),
         ...(escrow && { createJob: escrow.createJob, getJob: escrow.getJob, deliverJob: escrow.deliverJob }),

@@ -4,7 +4,9 @@ PASHADHARA gives an AI agent a spending budget backed by a PayPal sandbox author
 
 ## Try the demo
 
-Open the showcase lease and choose **Run the agent** to make a real Haiku-backed call while the sandbox authorization and demo budget are available. Enter a price above the remaining hold and choose **Preview cap decision** to see what the kernel would refuse. The preview runs without committing the price or calling a provider. **Proof** shows recorded capture fees, PayPal reconciliation and a completed escrow run. The showcase uses a dedicated sandbox hold and requires no signup or credentials. When no showcase lease is configured, the page labels the dated recording and offers read-only access. [Open the demo](https://pashadhara.vercel.app/lease?showcase=1)
+Open the showcase lease and choose **Run the agent** to make a real Haiku-backed call while the sandbox authorization and demo budget are available. A successful call commits 3 cents to the journal; PayPal capture is separate. **Check this amount** previews the kernel decision without posting usage or calling a provider. **Proof** shows dated capture fees, PayPal reconciliation and a recorded escrow run. The showcase uses a dedicated sandbox hold and requires no signup. When no live lease is configured or the gateway cannot be reached, the UI labels its saved demo fixture and offers a separate browser simulation. That fixture has no traceable raw run and is not PayPal evidence. [Open the demo](https://pashadhara.vercel.app/lease?showcase=1)
+
+For an agent integration, start with the [developer quickstart](docs/quickstart.md). Lease creation requires an operator bearer. The hosted signup remains a prototype.
 
 Run `node scripts/generate-proof-evidence.mjs` to regenerate the public Proof manifest from the sandbox evidence. Run it with `--check` to verify the checked-in manifest. After building the web app, run `node apps/web/scripts/with-motion-server.mjs scripts/check-proof-evidence.mjs` to compare the rendered page with the source evidence and save screenshots.
 

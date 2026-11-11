@@ -1,4 +1,4 @@
-import type { Database } from '../../../packages/kernel/src/db.ts';
+import type { Database, Tx } from '../../../packages/kernel/src/db.ts';
 import type { RouteHandler } from './routes.ts';
 
 const accounts = ['buyer_commitment', 'hold_available', 'committed_unsettled', 'captured_gross',
@@ -10,8 +10,8 @@ function safeInteger(value: string): number {
   return result;
 }
 
-async function readLeases(db: Database, lease: string | null) {
-  const rows = await db.transaction(null, tx => tx.query<{
+export async function readLeases(tx: Tx, lease: string | null) {
+  const rows = await tx.query<{
     id: string; state: string; cap_minor: string; unsettled_limit_minor: string;
     guaranteed_now: boolean; authorizations: Record<string, string>[]; balances: Record<string, string>;
   }>(`select l.id,l.state,l.cap_minor,l.unsettled_limit_minor,
@@ -30,7 +30,7 @@ async function readLeases(db: Database, lease: string | null) {
       select 'total_captured',coalesce(sum(c.amount_minor),0) from public.captures c
         where c.lease_id=l.id and c.status in ('completed','reversed')
     ) totals) as balances
-    from public.leases l where ($1::uuid is null or l.id=$1) order by l.created_at desc,l.id`, [lease]));
+    from public.leases l where ($1::uuid is null or l.id=$1) order by l.created_at desc,l.id`, [lease]);
   return rows.rows.map(row => ({
     ...row, cap_minor: safeInteger(row.cap_minor), unsettled_limit_minor: safeInteger(row.unsettled_limit_minor),
     authorizations: row.authorizations.map(auth => ({ ...auth, amount_minor: safeInteger(auth.amount_minor!) })),
@@ -38,16 +38,25 @@ async function readLeases(db: Database, lease: string | null) {
   }));
 }
 
+export async function readJournal(tx: Tx, lease: string, after = 0n) {
+  if (after > 9223372036854775807n) return [];
+  const result = await tx.query<{ id: string; amount_minor: string; created_at: Date } & Record<string, unknown>>(
+    `select id,group_id,account,direction,amount_minor,ref_type,ref_id,created_at
+     from public.ledger_entries where lease_id=$1 and id>$2 order by id`, [lease, after < 0n ? '0' : after.toString()],
+  );
+  return result.rows.map(row => ({ ...row, id: safeInteger(row.id), amount_minor: safeInteger(row.amount_minor), created_at: row.created_at.toISOString() }));
+}
+
 /** The authenticator must authorize the principal for every path and body identifier. */
 export function readHandlers(db: Database): Record<string, RouteHandler> {
   return {
     getLease: async ({ params }) => {
-      const [lease] = await readLeases(db, params.leaseId!);
+      const [lease] = await db.transaction(null, tx => readLeases(tx, params.leaseId!));
       return lease ? { status: 200, body: lease } : {
         status: 404, body: { type: 'about:blank', title: 'Lease not found', status: 404 },
       };
     },
-    listLeases: async () => ({ status: 200, body: { leases: await readLeases(db, null) } }),
+    listLeases: async () => ({ status: 200, body: { leases: await db.transaction(null, tx => readLeases(tx, null)) } }),
     listTools: async () => ({
       status: 200,
       body: { tools: await db.transaction(null, async tx => {
@@ -59,15 +68,7 @@ export function readHandlers(db: Database): Record<string, RouteHandler> {
     }),
     getJournal: async ({ params, query }) => ({
       status: 200,
-      body: { entries: await db.transaction(null, async tx => {
-        const after = BigInt(query.after ?? '0');
-        if (after > 9223372036854775807n) return [];
-        const result = await tx.query<{ id: string; amount_minor: string; created_at: Date } & Record<string, unknown>>(
-          `select id,group_id,account,direction,amount_minor,ref_type,ref_id,created_at
-           from public.ledger_entries where lease_id=$1 and id>$2 order by id`, [params.leaseId, after < 0n ? '0' : after.toString()],
-        );
-        return result.rows.map(row => ({ ...row, id: safeInteger(row.id), amount_minor: safeInteger(row.amount_minor), created_at: row.created_at.toISOString() }));
-      }) },
+      body: { entries: await db.transaction(null, tx => readJournal(tx, params.leaseId!, BigInt(query.after ?? '0'))) },
     }),
   };
 }
