@@ -987,11 +987,14 @@ const FAQ=[
  ["What if PayPal does not answer?","The state becomes unknown. We read PayPal before any retry, so a slow call should never turn into a double charge. That is the design, and it is not proven end to end yet."],
  ["Is this live?","No. This is a sandbox prototype. No real money moves, and every number on a screen says whether it was measured, computed or is a fixture."]
 ];
+/* Product port: the live balance belongs in a source-labelled decision desk, not in a
+   fixed headline. A dated recording has a past-tense balance; an unavailable or ended
+   lease cannot offer a live spending action. Keep the sample as a separate simulation. */
 V.home=()=>`
 <section class="hero"><div class="wrap">
   <h1>Give your agent a budget it cannot break.</h1>
   <p class="lede">One PayPal hold becomes a spending limit that lives outside the model. Approve once, watch it spend, void whenever you want.</p>
-  <div class="ctas"><a class="btn accent" href="#/signup">Start with a $20 hold</a><a class="btn" href="#/" data-act="sample">Explore a sample lease</a></div>
+  <div class="ctas"><a class="btn accent" href="delegation.html">Explore the $5,000 delegation study</a><a class="btn" href="#/" data-act="sample">Explore a sample lease</a></div>
   <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><button class="btn sm" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause the demo</button></div>
   <p class="sr">An animated lease cord. An agent ties paid calls onto a twenty dollar hold, calls are settled in one capture, and a call that would pass the cap is refused.</p>
 </div></section>
@@ -1022,7 +1025,7 @@ V.home=()=>`
     <div><div class="n">$0.91</div><p>fee on one $12.00 capture, from the same fee model ${tagHtml("computed")}</p></div>
     <div><div class="n">422</div><p>what PayPal answered when we tried to capture after a void ${tagHtml("measured")}</p></div>
   </div>
-  <p style="margin-top:var(--s6)"><a href="#/" data-act="sample-proof">Read the twelve raw rows</a></p>
+  <p style="margin-top:var(--s6)"><a href="#/" data-act="sample-proof">Read the twelve raw rows</a> · <a href="finance.html">See the recorded finance investigation</a></p>
 </div></section>
 
 <section class="sect" id="how"><div class="wrap">

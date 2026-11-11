@@ -1,0 +1,114 @@
+{
+  "at": "2026-11-11T22:50:14.515Z",
+  "lease_id": "07c11c95-33cf-4204-a508-000ba1e608ab",
+  "paypal": {
+    "provenance": "measured",
+    "http_status": 200,
+    "id": "3UF74845GR013815C",
+    "status": "CREATED",
+    "amount": {
+      "currency_code": "USD",
+      "value": "0.06"
+    },
+    "create_time": "2026-11-11T22:48:36Z",
+    "expiration_time": "2026-12-10T22:48:36Z",
+    "note": "Allowlisted fields from PayPal GET authorization response; not the complete raw response."
+  },
+  "kernel": {
+    "provenance": "computed",
+    "auth": {
+      "paypal_authorization_id": "3UF74845GR013815C",
+      "status": "created",
+      "amount_minor": "6"
+    },
+    "calls": [
+      {
+        "tool_id": "finance_payment_bundle",
+        "status": "refused_cap",
+        "price_minor": "7",
+        "ledger_group_id": null
+      },
+      {
+        "tool_id": "finance_payment_lookup",
+        "status": "served",
+        "price_minor": "2",
+        "ledger_group_id": "4a9daf82-7639-4541-a562-1d4df37a6b25"
+      },
+      {
+        "tool_id": "finance_payment_lookup",
+        "status": "served",
+        "price_minor": "2",
+        "ledger_group_id": "b80250d6-29f9-4a25-b30c-f6f2574a146b"
+      },
+      {
+        "tool_id": "finance_payment_lookup",
+        "status": "served",
+        "price_minor": "2",
+        "ledger_group_id": "b5933d34-c2c6-4715-939f-178a6773095b"
+      }
+    ],
+    "ledger": [
+      {
+        "account": "HOLD_AVAILABLE",
+        "direction": "D",
+        "amount_minor": "6",
+        "ref_type": "authorize",
+        "ref_id": "680778b8-a1a4-4adc-9cd9-fe6440701868"
+      },
+      {
+        "account": "BUYER_COMMITMENT",
+        "direction": "C",
+        "amount_minor": "6",
+        "ref_type": "authorize",
+        "ref_id": "680778b8-a1a4-4adc-9cd9-fe6440701868"
+      },
+      {
+        "account": "COMMITTED_UNSETTLED",
+        "direction": "D",
+        "amount_minor": "2",
+        "ref_type": "commit",
+        "ref_id": "88a1c1f3-d87b-4cdc-82a1-fd2a14a99ebc"
+      },
+      {
+        "account": "HOLD_AVAILABLE",
+        "direction": "C",
+        "amount_minor": "2",
+        "ref_type": "commit",
+        "ref_id": "88a1c1f3-d87b-4cdc-82a1-fd2a14a99ebc"
+      },
+      {
+        "account": "COMMITTED_UNSETTLED",
+        "direction": "D",
+        "amount_minor": "2",
+        "ref_type": "commit",
+        "ref_id": "a42adfad-f10e-4b2e-8067-df585798aae4"
+      },
+      {
+        "account": "HOLD_AVAILABLE",
+        "direction": "C",
+        "amount_minor": "2",
+        "ref_type": "commit",
+        "ref_id": "a42adfad-f10e-4b2e-8067-df585798aae4"
+      },
+      {
+        "account": "COMMITTED_UNSETTLED",
+        "direction": "D",
+        "amount_minor": "2",
+        "ref_type": "commit",
+        "ref_id": "17cc19e7-9390-4573-967d-0600d2d28c00"
+      },
+      {
+        "account": "HOLD_AVAILABLE",
+        "direction": "C",
+        "amount_minor": "2",
+        "ref_type": "commit",
+        "ref_id": "17cc19e7-9390-4573-967d-0600d2d28c00"
+      }
+    ]
+  },
+  "matches": {
+    "id": true,
+    "status": true,
+    "amount": true
+  }
+}

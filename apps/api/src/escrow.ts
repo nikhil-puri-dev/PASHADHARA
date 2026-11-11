@@ -31,6 +31,8 @@ export function escrowFlow(options: { db: Database; paypal: Gateway; judges: Jud
   const wait: Wait = options.wait ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
   const jobCost = options.judges?.reduce((sum, judge) => sum + judge.max_cost_minor, 0n) ?? 0n;
   const background = new Set<Promise<unknown>>();
+  const resumes = new Map<string, number>();
+  const judging = new Set<string>(); // jobs this process is judging right now
   const track = (work: Promise<unknown>) => {
     const tracked = work.catch(error => { logError(new Request('http://localhost/jobs'), 'escrowBackground', error); });
     background.add(tracked);
@@ -88,6 +90,19 @@ export function escrowFlow(options: { db: Database; paypal: Gateway; judges: Jud
     if (Buffer.byteLength(text, 'utf8') > limit) return problem(409, 'Deliverable exceeds the job byte limit');
     // One atomic claim under the lease lock: only the request that moves open to delivered starts judging.
     const rejected = await db.transaction(job.lease_id, async tx => {
+      // Recovery: the same text resubmitted for a job that was delivered but never decided (the process died or judging threw
+      // before the decision committed). No verdicts can exist then, so judging restarts from scratch. The delivery was already
+      // counted against the judge budget, so it is not counted again.
+      const current = (await tx.query<{ state: string; deliverable_hash: string | null; decided: boolean }>(
+        'select state,deliverable_hash,exists(select 1 from public.decisions d where d.job_id=j.id) as decided from public.jobs j where id=$1 for update', [job.id])).rows[0];
+      if (current?.state === 'delivered' && current.deliverable_hash === deliverableHash(text) && !current.decided) {
+        if (judging.has(job.id)) return 'Judging is already in progress for this job';
+        // Resumes are not budgeted by the kernel, so bound them per process. Across processes a seller could still repeat this.
+        if ((resumes.get(job.id) ?? 0) >= 2) return 'Judging resume limit reached';
+        resumes.set(job.id, (resumes.get(job.id) ?? 0) + 1);
+        judging.add(job.id); // inside the claim transaction, so a second request cannot slip in before it commits
+        return null;
+      }
       // A delivery hash is committed before provider calls and survives failed providers and restarts.
       await tx.query('select pg_advisory_xact_lock(234171, 3)');
       const { rows: [usage] } = await tx.query<{ total: string; lease: string }>(`
@@ -101,7 +116,8 @@ export function escrowFlow(options: { db: Database; paypal: Gateway; judges: Jud
       return claim.rowCount === 1 ? null : 'Job is not open for delivery';
     });
     if (rejected) return problem(409, rejected);
-    track(finishJob(job, text));
+    judging.add(job.id);
+    track(finishJob(job, text).finally(() => judging.delete(job.id)));
     return { status: 202, body: await readJob(job.id) };
   };
 

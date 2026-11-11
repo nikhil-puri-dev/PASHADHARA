@@ -8,7 +8,7 @@ import { createApp } from './app.ts';
 import { approvalFlow, callbackBase } from './approval.ts';
 import { createAuth, issueToken } from './auth.ts';
 import { readHandlers } from './read-handlers.ts';
-import { kernelMeter } from './meter.ts';
+import { kernelMeter, resultStore } from './meter.ts';
 import { summariseTool } from './summarise.ts';
 import { financeTools } from './finance-fixtures.ts';
 import { escrowFlow } from './escrow.ts';
@@ -64,7 +64,7 @@ app.all('*', async c => {
     api = createApp({
       contract: loadContract(), db, ...createAuth(db, secret, admin),
       mcpAllowedOrigins: baseUrl ? [new URL(callbackBase(baseUrl)).origin] : [],
-      meter: kernelMeter(db),
+      meter: kernelMeter(db, undefined, resultStore(db)),
       tools: [tool, ...financeTools],
       webhook: paypal && webhookId ? { webhookId, paypal, kernel: webhookStore(db) } : undefined,
       handlers: {

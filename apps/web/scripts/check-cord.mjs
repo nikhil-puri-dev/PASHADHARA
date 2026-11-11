@@ -53,37 +53,37 @@ try {
     const { context, page, errors } = await session(1440, 900);
     const res = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
     assert.equal(res.status(), 200);
-    await page.locator("#herocord svg").waitFor();
-    assert.match(await h1(page), /Your agent can spend \$20\.00\.\s*Not \$20\.01\./);
+    await page.locator(".dk .dk-mode").first().waitFor();
+    assert.match(await h1(page), /Give your agent authority\.\s*Keep the boundary\./);
     assert.equal((await page.locator(".brand .word").first().textContent()).trim(), "Pashadhara", "plain wordmark");
     assert.ok(await page.locator(".brand .mark").count(), "knot mark present");
-    ok("landing renders with the knot mark and the two H bars");
+    ok("landing renders with the knot mark, the h1 and the decision desk");
 
     await page.goto(`${origin}/nope`); assert.equal((await page.goto(`${origin}/nope`)).status(), 404); ok("unknown path is a real 404");
     await page.goto(`${origin}/lease`, { waitUntil: "networkidle" });
-    await page.waitForURL(`${origin}/`); ok("signed out /lease bounces to /");
+    await page.locator(".dk .dk-mode").first().waitFor(); assert.equal(new URL(page.url()).pathname, "/lease"); ok("signed out /lease opens the showcase desk and stays on /lease");
 
     await page.goto(`${origin}/signup`, { waitUntil: "networkidle" });
-    assert.equal(await h1(page), "Create your account");
-    await page.getByRole("button", { name: "Send the code" }).click();
+    assert.equal(await h1(page), "Try account setup");
+    await page.getByRole("button", { name: "Continue to sample code" }).click();
     assert.equal(await page.locator(".errtxt").count(), 2, "both fields explain themselves"); ok("sign up validates inline");
     await page.fill("#suName", "Nikhil"); await page.fill("#suEmail", "nikhil@example.com");
-    await page.getByRole("button", { name: "Send the code" }).click();
+    await page.getByRole("button", { name: "Continue to sample code" }).click();
     assert.equal(await h1(page), "Enter the code");
     await code(page, "000000"); await page.locator(".errtxt").waitFor();
     assert.match(await page.locator(".errtxt").textContent(), /does not match/); ok("wrong code is refused with a recovery");
-    await code(page, "123456"); await page.getByRole("heading", { name: "Connect PayPal" }).waitFor(); ok("code accepted");
-    await page.getByRole("button", { name: "Connect PayPal sandbox" }).click();
+    await code(page, "123456"); await page.getByRole("heading", { name: "Simulate PayPal connection" }).waitFor(); ok("code accepted");
+    await page.getByRole("button", { name: "Simulate connection" }).click();
     await page.locator(".linked").waitFor(); await page.getByRole("button", { name: "Continue" }).click();
-    assert.equal(await h1(page), "Set the rules");
+    assert.equal(await h1(page), "Set sample rules");
     await page.locator('[data-act="su-cap"][data-v="5000"]').click();
     await page.locator('[data-act="su-per"][data-v="100"]').click();
     await page.locator('[data-act="su-cat"][data-v="Documents"]').click();
     await page.getByRole("button", { name: "Review and approve" }).click();
-    assert.equal(await h1(page), "Approve the hold");
-    await page.locator("#apGo").click(); await page.getByRole("heading", { name: "Connect your agent" }).waitFor();
-    await page.getByRole("button", { name: "Send a test call" }).click(); await page.locator(".testres").waitFor();
-    await page.getByRole("button", { name: "Open my lease" }).click();
+    assert.equal(await h1(page), "Simulate approval");
+    await page.locator("#apGo").click(); await page.getByRole("heading", { name: "Preview agent settings" }).waitFor();
+    await page.getByRole("button", { name: "Simulate a test call" }).click(); await page.locator(".testres").waitFor();
+    await page.getByRole("button", { name: "Open sample lease" }).click();
     await page.waitForURL(/\/lease$/); assert.match(await h1(page), /\$50\.00 is free to spend/); ok("six step sign up lands on a $50.00 lease");
 
     for (let i = 0; i < 4; i++) await page.locator("#one").click();
@@ -109,6 +109,8 @@ try {
     assert.match(await h1(page), /3 captures for \$1\.53/); ok("settle recomputes fees");
     await page.locator("#settleGo").click(); await page.getByRole("heading", { name: "Settled." }).waitFor();
     await page.getByRole("link", { name: "Escrow" }).click(); await page.waitForURL(/\/escrow$/);
+    assert.equal(await page.locator(".payout").textContent(), "$2.50 held");
+    await page.locator('button[data-j="b"][data-v="2"]').click();
     assert.equal(await page.locator(".payout").textContent(), "$1.50 to the seller");
     await page.locator('button[data-j="b"][data-v="0"]').click();
     assert.equal(await page.locator(".payout").textContent(), "$2.50 held"); ok("escrow rule: agree pays, a split holds");
@@ -120,7 +122,7 @@ try {
     assert.equal(await voidBtn.getAttribute("aria-disabled"), "true");
     await page.fill("#vin", "1.00"); assert.equal(await voidBtn.getAttribute("aria-disabled"), "true");
     await page.fill("#vin", "10.65"); assert.equal(await voidBtn.getAttribute("aria-disabled"), "false");
-    await voidBtn.click(); await page.getByRole("heading", { name: "The hold is released." }).waitFor(); ok("void needs the exact held amount");
+    await voidBtn.click(); await page.getByRole("heading", { name: "The sample hold is released." }).waitFor(); ok("void needs the exact held amount");
     assert.deepEqual(errors, [], errors.join("\n")); await context.close();
   }
   // 3. Phone: every route, no overflow, no small text
@@ -129,8 +131,9 @@ try {
     await page.goto(`${origin}/`, { waitUntil: "networkidle" }); await audit(page, "home 390");
     await page.goto(`${origin}/signup`, { waitUntil: "networkidle" }); await audit(page, "signup 390");
     await page.goto(`${origin}/login`, { waitUntil: "networkidle" });
-    await page.fill("#suEmail", "ada@example.com"); await page.getByRole("button", { name: "Send the code" }).click();
+    await page.fill("#suEmail", "ada@example.com"); await page.getByRole("button", { name: "Continue to sample code" }).click();
     await audit(page, "code 390"); await code(page, "123456"); await page.waitForURL(/\/lease$/);
+    await page.goto(`${origin}/`, { waitUntil: "networkidle" }); await page.locator('[data-act="sample"]').first().click();
     for (const p of ["lease", "escrow", "settle", "proof", "approve"]) {
       await page.getByRole("link", { name: p === "approve" ? "New lease" : p[0].toUpperCase() + p.slice(1), exact: true }).first().click();
       await page.waitForURL(new RegExp(`/${p}$`)); await audit(page, `${p} 390`);

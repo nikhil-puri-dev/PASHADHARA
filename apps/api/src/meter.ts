@@ -97,24 +97,39 @@ export async function windowStillOpen(tx: Tx, lease: string) {
  * such a rollback can repeat provider work: the buyer is charged at most once, the repeat is bounded by the
  * caller limits and the AI spend cap.
  */
-export function kernelMeter(db: Database, deadlines?: Deadlines): Meter {
+export function kernelMeter(db: Database, deadlines?: Deadlines, results?: ResultStore): Meter {
   return async (lease, tool, key, work, entered) => {
     let price = 0n;
     try {
+      const store = results && await results.usable() ? results : undefined;
       let output: Promise<Record<string, unknown>> | undefined;
       const result = await lockedTransaction(db, lease, { ...deadlines, entered }, async (tx, signal, endWait) => {
         const usage = await commitUsageInTransaction(tx, lease, { kind: 'tool', tool_id: tool, idempotency_key: key });
         price = usage.amount_minor;
-        if (usage.replayed || usage.status !== 'served') return { usage, output };
+        if (usage.replayed) {
+          // Replay: same key, same lease. Return the stored product, charge nothing, call no provider.
+          const stored = usage.status === 'served' && store ? await store.get(tx, lease, key) : null;
+          const { hold } = await balances(tx, lease);
+          return { usage, output, hold, stored };
+        }
+        if (usage.status !== 'served') return { usage, output };
         await endWait();
         output ??= runBeforeDeadline(work, signal); // a serialization retry must not call the provider twice
-        await output;
+        const product = await output;
         if (!await windowStillOpen(tx, lease)) throw new WindowClosed();
+        if (store) await store.put(tx, lease, key, usage.id!, product);
         const { hold } = await balances(tx, lease);
         return { usage, output, hold };
       });
       const { usage } = result;
-      if (usage.replayed) return { ok: false, error: 'idempotency_conflict' };
+      if (usage.replayed) {
+        const { stored, hold } = result as { stored?: { tool_call_id: string; result: Record<string, unknown> } | null; hold: bigint };
+        if (stored) return { ok: true, result: { ...stored.result, receipt: {
+          provenance: 'computed', replayed: true, lease_id: lease, tool_call_id: stored.tool_call_id, ledger_group_id: usage.ledger_group_id,
+          charged_minor: 0, original_charged_minor: Number(usage.amount_minor), remaining_minor: Number(hold) } } };
+        if (store && usage.status !== 'served') return { ok: false, reason: meterReasons[usage.status], price_minor: Number(usage.amount_minor), remaining_minor: Number(hold), lease_id: lease, next_action: nextActions[usage.status] };
+        return { ok: false, error: 'idempotency_conflict' };
+      }
       if (usage.status === 'served') return { ok: true, result: {
         ...await result.output!,
         receipt: { provenance: 'computed', lease_id: lease, tool_call_id: usage.id, ledger_group_id: usage.ledger_group_id,
@@ -132,5 +147,32 @@ export function kernelMeter(db: Database, deadlines?: Deadlines): Meter {
       try { logError(new Request('http://localhost/mcp'), 'meter', error); } catch { /* logging must not open the gate */ }
       return { ok: false, error: 'metering_unavailable' };
     }
+  };
+}
+
+/** Durable store of served results, written inside the charging transaction (see sql/tool_results.sql). */
+export type ResultStore = {
+  usable(): Promise<boolean>;
+  put(tx: Tx, lease: string, key: string, toolCallId: string, result: Record<string, unknown>): Promise<void>;
+  get(tx: Tx, lease: string, key: string): Promise<{ tool_call_id: string; result: Record<string, unknown> } | null>;
+};
+export function resultStore(db: Database): ResultStore {
+  let usable: Promise<boolean> | undefined;
+  return {
+    // A missing table means replay is off and a reused key is refused, as before.
+    usable: async () => {
+      if (usable) return usable;
+      // Only a positive answer is cached, so a transient probe failure is retried on the next call.
+      const ok = await db.transaction(null, tx => tx.query("select to_regclass('public.tool_results') is not null as ok")).then(r => (r.rows[0] as { ok: boolean }).ok, () => false);
+      if (ok) usable = Promise.resolve(true);
+      return ok;
+    },
+    async put(tx, lease, key, id, result) {
+      await tx.query('insert into public.tool_results(lease_id,idempotency_key,tool_call_id,result) values ($1,$2,$3,$4::jsonb)', [lease, key, id, JSON.stringify(result)]);
+    },
+    async get(tx, lease, key) {
+      const { rows } = await tx.query<{ tool_call_id: string; result: Record<string, unknown> }>('select tool_call_id,result from public.tool_results where lease_id=$1 and idempotency_key=$2', [lease, key]);
+      return rows[0] ?? null;
+    },
   };
 }

@@ -307,43 +307,6 @@ try {
       await layout(page, "signup");
     }));
 
-    await trial("landing capture, refusal, reset and visibility", () => session({ viewport: { width: 1200, height: 900 } }, async page => {
-      await home(page);
-      await page.locator("#herocord").scrollIntoViewIfNeeded();
-      await page.locator("#herocord svg").evaluate(svg => { window.heroSvg = svg; });
-      await page.waitForFunction(() => document.querySelector("#herolog").textContent.includes("Settled in one capture"), null, { timeout: 9000 });
-      await active(page, "hero capture", "#herocord", "opacity", 450);
-      await frames(page, "hero-capture", "#herocord");
-      assert.equal(await page.locator("#herocord .pendants [data-state=captured]").count(), 4);
-      assert.equal(await page.locator("#herocord .pendants .pen").evaluateAll(pens =>
-        pens.every(pen => pen.getBBox().height > 200 && getComputedStyle(pen).opacity === "1")), true);
-      await page.waitForFunction(() => document.querySelector("#herolog").textContent.includes("Refused."));
-      await frames(page, "hero-refusal", "#herocord");
-      const refused = await page.locator("#herolog").textContent();
-      await click(page, "#heroPause");
-      await pause(4300);
-      assert.equal(await page.locator("#herolog").textContent(), refused);
-      await click(page, "#heroPause");
-      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-      await pause(4300);
-      assert.equal(await page.locator("#herolog").textContent(), refused);
-      await page.locator("#herocord").scrollIntoViewIfNeeded();
-      await page.evaluate(() => {
-        Object.defineProperty(document, "hidden", { configurable: true, value: true });
-        document.dispatchEvent(new Event("visibilitychange"));
-      });
-      await pause(4300);
-      assert.equal(await page.locator("#herolog").textContent(), refused);
-      await page.evaluate(() => {
-        delete document.hidden;
-        document.dispatchEvent(new Event("visibilitychange"));
-      });
-      await page.waitForFunction(() => document.querySelector("#herolog").textContent.includes("Nothing spent yet"), null, { timeout: 6000 });
-      await active(page, "hero reset", "#herocord", "opacity", 450);
-      await frames(page, "hero-reset", "#herocord");
-      assert.equal(await page.locator("#herocord svg").evaluate(svg => svg === window.heroSvg), true);
-      await layout(page, "hero");
-    }));
 
     await trial("reduced motion across all routes and actions", () => session({
       viewport: { width: 390, height: 844 }, reducedMotion: "reduce", isMobile: true, hasTouch: true,

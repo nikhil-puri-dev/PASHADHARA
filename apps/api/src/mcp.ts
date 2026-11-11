@@ -44,6 +44,8 @@ export function createMcp(
 ) {
   const app = new Hono();
   app.all('/mcp', async c => {
+    // Stateless server: there is no session to resume (GET) or end (DELETE). The spec allows 405 for both.
+    if (c.req.method === 'GET' || c.req.method === 'DELETE') return c.body(null, 405, { allow: 'POST' });
     const origin = c.req.header('origin');
     if (origin !== undefined && !budget.allowedOrigins?.includes(origin)) return c.json({ error: 'origin_not_allowed' }, 403);
     // One budget from request entry: authentication (which uses a pool slot) counts against the same lock wait as the meter.
@@ -55,6 +57,11 @@ export function createMcp(
     const lease = await Promise.race([
       resolving, new Promise<typeof busy>(resolve => { waitTimer = setTimeout(() => resolve(busy), budget.lockWaitMs ?? LOCK_WAIT_MS); }),
     ]).finally(() => clearTimeout(waitTimer));
+    if (lease === null && c.req.method === 'POST') {
+      // A tool call without a valid lease token is an authentication failure at the HTTP layer, so clients can react to it.
+      const rpc = await c.req.raw.clone().json().catch(() => null) as { method?: unknown } | { method?: unknown }[] | null;
+      if ((Array.isArray(rpc) ? rpc : [rpc]).some(m => m?.method === 'tools/call')) return c.json({ error: 'unauthorized' }, 401, { 'www-authenticate': 'Bearer realm="pashadhara-lease"' });
+    }
     const server = new McpServer({ name: 'pashadhara', version: '0.1.0' });
     for (const tool of tools) {
       server.registerTool(tool.name, {
@@ -84,6 +91,7 @@ export function createMcp(
           admission.cancel();
           return { isError: true, structuredContent: payment, content: [{ type: 'text', text: JSON.stringify(payment) }] };
         }
+        if ((payment.result.receipt as { replayed?: boolean } | undefined)?.replayed) admission.cancel(); // a replay never ran the tool: free any reservation
         return { structuredContent: payment.result, content: [{ type: 'text', text: JSON.stringify(payment.result) }] };
       });
     }

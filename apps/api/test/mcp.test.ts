@@ -48,8 +48,16 @@ test('MCP refuses an unauthenticated tool call before metering', async () => {
   const app = createMcp(async (_l, _t, _k, work) => { called = true; return { ok: true, result: await work(new AbortController().signal) }; }, async () => null, async () => {
     throw new Error('Tool registry must not be read on an unauthenticated call');
   });
-  const message = await rpc(app, 'tools/call', { name: 'text_stats', arguments: { text: 'fixture', idempotency_key: key('text_stats', 'fixture') } });
-  assert.equal(message.result.isError, true); assert.equal(called, false);
+  const response = await app.request('http://localhost/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-03-26' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'text_stats', arguments: { text: 'fixture', idempotency_key: key('text_stats', 'fixture') } } }) });
+  assert.equal(response.status, 401);
+  assert.match(response.headers.get('www-authenticate') ?? '', /^Bearer/);
+  assert.equal(called, false);
+});
+
+test('MCP is stateless: GET and DELETE are 405 without touching auth or the registry', async () => {
+  const app = createMcp(async () => ({ ok: false, error: 'metering_unavailable' }), async () => { throw new Error('auth must not run'); }, available);
+  for (const method of ['GET', 'DELETE']) assert.equal((await app.request('http://localhost/mcp', { method, headers: { accept: 'text/event-stream' } })).status, 405);
 });
 
 test('MCP rejects a key bound to different input before metering', async () => {
