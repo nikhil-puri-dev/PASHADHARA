@@ -5,13 +5,14 @@ import { useEffect, useSyncExternalStore } from "react";
    Rule: after one good read the UI keeps the last good read (with its age). It never falls back to a saved fixture. */
 export type Call = { id: string; tool_id: string; price_minor: string | number; status: string; created_at: string; ledger_group_id?: string | null; captured?: boolean };
 export type Capture = { id?: string; paypal_capture_id?: string; amount_minor: number | string; fee_minor?: number | string | null; status?: string; created_at?: string };
+export type JournalEntry = { id?: number; group_id?: string; account?: string; direction?: string; amount_minor?: number | string; ref_type?: string; created_at?: string };
 export type Showcase = {
   mode?: string; state?: string; ended?: boolean; read_at?: string; honor_until?: string | null; remaining_calls?: number;
   last_read_at?: string; refused_calls?: Call[];
-  lease?: { id?: string; state?: string; cap_minor?: number; guaranteed_now?: boolean;
-    authorizations?: { honor_until?: string; expires_at?: string; paypal_authorization_id?: string; status?: string }[];
+  lease?: { id?: string; state?: string; cap_minor?: number; unsettled_limit_minor?: number; guaranteed_now?: boolean;
+    authorizations?: { honor_until?: string; expires_at?: string; paypal_authorization_id?: string; paypal_authorization_last4?: string; status?: string }[];
     balances?: Record<string, number> };
-  journal?: { entries?: unknown[] }; calls?: Call[]; captures?: Capture[];
+  journal?: { entries?: JournalEntry[] }; calls?: Call[]; captures?: Capture[];
 };
 type Store = { data: Showcase | null; goodAt: number | null; failedAt: number | null; loading: boolean };
 
@@ -76,7 +77,10 @@ export function hold(d: Showcase | null, now = Date.now()) {
     if (honorMs <= now) state = "ended";
     else if (state !== "ended") state = honorMs - now <= 86_400_000 ? "expiring" : state === "unknown" ? "active" : state;
   }
-  return { cap, available, spent, collected, honor, honorMs, state, paypalId: auth?.paypal_authorization_id ?? null, expires: auth?.expires_at ?? null };
+  const unsettled = cents(d.lease?.unsettled_limit_minor);
+  const spendable = cents(b.spendable_minor);
+  const granted = d.journal?.entries?.[0]?.created_at ?? null;
+  return { cap, available, spent, collected, honor, honorMs, state, paypalId: auth?.paypal_authorization_id ?? null, last4: auth?.paypal_authorization_last4 ?? null, expires: auth?.expires_at ?? null, unsettled, spendable, granted };
 }
 
 export const shortId = (id?: string | null) => (id && id.length > 8 ? `${id.slice(0, 4)}…${id.slice(-4)}` : id ?? "");
