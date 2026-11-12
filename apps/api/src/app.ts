@@ -19,7 +19,7 @@ export function createApp(options: {
   mcpAllowedOrigins?: readonly string[];
   publishImplementedContract?: boolean;
 }) {
-  const handlers = { ...readHandlers(options.db), ...options.handlers };
+  const handlers: Record<string, RouteHandler> = { ...readHandlers(options.db), listTools: async () => ({ status: 200, body: { tools: await registeredTools(options.db, options.tools?.map(tool => tool.name))() } }), ...options.handlers };
   if (options.webhook) handlers.receivePayPalWebhook = webhookHandler(options.webhook);
   const contract = options.publishImplementedContract ? {
     ...options.contract, paths: Object.fromEntries(Object.entries(options.contract.paths).flatMap(([path, methods]) => {

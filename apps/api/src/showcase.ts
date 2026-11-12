@@ -8,11 +8,11 @@ import { Busy, ToolFailure, WindowClosed, lockedTransaction, meterReasons, runBe
 import type { ToolDef } from './mcp.ts';
 import { readJournal, readLeases } from './read-handlers.ts';
 
-const DAILY = 12;
+const DAILY = 24;
 const PER_IP = 2;
 const PREVIEWS_PER_MINUTE = 20;
 const PREFIX = 'showcase:';
-const TEXT = 'A PayPal sandbox authorization backs an AI agent spending limit. The gateway charges for tools and refuses calls above the remaining budget.';
+export const SHOWCASE_TEXT = 'A PayPal sandbox authorization backs an AI agent spending limit. The gateway charges for tools and refuses calls above the remaining budget.';
 
 export function showcaseRoutes(db: Database, fixtureLease: string | null, secret: string, tool: ToolDef, lifetime: number, deadlines?: Deadlines) {
   const app = new Hono();
@@ -26,35 +26,56 @@ export function showcaseRoutes(db: Database, fixtureLease: string | null, secret
     const ip = process.env.VERCEL ? request.headers.get('x-vercel-forwarded-for') ?? '' : '127.0.0.1';
     return isIP(ip) ? PREFIX + createHmac('sha256', secret).update('showcase-ip:' + ip).digest('hex') + ':' : null;
   };
-  async function remaining(tx: Tx, prefix: string | null) {
+  async function allowance(tx: Tx, prefix: string | null) {
     const { rows: [row] } = await tx.query<{ total: number; daily: number; ip: number }>(`
       select count(*)::int as total,
-        count(*) filter (where created_at>=date_trunc('day',now()))::int as daily,
-        count(*) filter (where left(idempotency_key,length($1))=$1 and created_at>=date_trunc('day',now()))::int as ip
+        count(*) filter (where created_at>=date_trunc('day',now() at time zone 'UTC') at time zone 'UTC')::int as daily,
+        count(*) filter (where left(idempotency_key,length($1))=$1
+          and created_at>=date_trunc('day',now() at time zone 'UTC') at time zone 'UTC')::int as ip
       from public.tool_calls where status='served' and left(idempotency_key,9)='showcase:'`, [prefix]);
-    return Math.max(0, Math.min(lifetime - row!.total, DAILY - row!.daily, prefix ? PER_IP - row!.ip : 0));
+    const reason = row!.total >= lifetime ? 'lifetime' : row!.daily >= DAILY ? 'daily' : !prefix || row!.ip >= PER_IP ? 'per_ip' : null;
+    const now = new Date();
+    return {
+      remaining_calls: Math.max(0, Math.min(lifetime - row!.total, DAILY - row!.daily, prefix ? PER_IP - row!.ip : 0)),
+      limit_reason: reason,
+      resets_at: reason === 'daily' || reason === 'per_ip' ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toISOString() : null,
+    };
   }
+  const endedAllowance = { remaining_calls: 0, limit_reason: 'ended', resets_at: null };
   app.use('/showcase/*', async (c, next) => { c.header('Cache-Control', 'no-store'); await next(); });
   app.get('/showcase', async c => {
     const snapshot = await db.transaction(null, async tx => {
       const { rows: [clock] } = await tx.query<{ read_at: Date }>('select transaction_timestamp() as read_at');
       const read_at = clock!.read_at.toISOString();
       const lease = await selected(tx);
-      if (!lease) return { state: 'ended', ended: true, read_at, honor_until: null, remaining_calls: 0 };
+      if (!lease) return { state: 'ended', ended: true, read_at, honor_until: null, ...endedAllowance };
       const [leaseRow] = await readLeases(tx, lease);
-      if (!leaseRow) return { state: 'ended', ended: true, read_at, honor_until: null, remaining_calls: 0 };
+      if (!leaseRow) return { state: 'ended', ended: true, read_at, honor_until: null, ...endedAllowance };
       const honor_until = leaseRow.authorizations.find(a => a.status === 'created' || a.status === 'partially_captured')?.honor_until ?? null;
       const ended = leaseRow.state !== 'active' || !leaseRow.guaranteed_now;
       const state = ended ? 'ended' : Date.parse(honor_until!) - clock!.read_at.getTime() <= 86_400_000 ? 'expiring' : 'active';
-      const entries = await readJournal(tx, lease);
+      const rawEntries = await readJournal(tx, lease);
+      const groups = new Map<string, string>();
+      const entries = rawEntries.map((entry, index) => {
+        const groupId = String((entry as typeof entry & { group_id: string }).group_id);
+        if (!groups.has(groupId)) groups.set(groupId, `group-${groups.size + 1}`);
+        return { ...entry, id: index + 1, group_id: groups.get(groupId)! };
+      });
+      const publicLease = { ...leaseRow, authorizations: leaseRow.authorizations.map(auth => {
+        const last4 = (auth as typeof auth & { paypal_authorization_id?: string }).paypal_authorization_id?.slice(-4) ?? null;
+        return { ...auth, paypal_authorization_id: last4, paypal_authorization_last4: last4 };
+      }), balances: { ...leaseRow.balances,
+        spendable_minor: Math.max(0, Math.min(leaseRow.balances.hold_available,
+          leaseRow.unsettled_limit_minor - leaseRow.balances.committed_unsettled)),
+      } };
       const calls = await tx.query(`select t.id,t.tool_id,t.price_minor,t.status,t.created_at,t.ledger_group_id,
         exists(select 1 from public.capture_allocations a join public.captures c on c.id=a.capture_id
           where a.lease_id=t.lease_id and a.ref_id=t.id::text and c.status='completed') as captured
         from public.tool_calls t where t.lease_id=$1 order by t.created_at,t.id`, [lease]);
       const captures = await tx.query(`select id,paypal_capture_id,amount_minor,fee_minor,status,created_at
         from public.captures where lease_id=$1 order by created_at,id`, [lease]);
-      return { state, ended, read_at, honor_until, lease: leaseRow, journal: { entries }, calls: calls.rows, captures: captures.rows,
-        remaining_calls: ended ? 0 : await remaining(tx, ipPrefix(c.req.raw)) };
+      return { state, ended, read_at, honor_until, lease: publicLease, journal: { entries }, calls: calls.rows, captures: captures.rows,
+        ...(ended ? endedAllowance : await allowance(tx, ipPrefix(c.req.raw))) };
     }, 'repeatable read');
     return c.json({ provenance: 'computed', mode: 'live', ...snapshot }, 200, headers);
   });
@@ -71,13 +92,15 @@ export function showcaseRoutes(db: Database, fixtureLease: string | null, secret
       if (!toolRow.rows[0]) return null;
       const price = BigInt(toolRow.rows[0].price_minor);
       const result = await checkUsage(tx, lease, price, toolRow.rows[0].active);
-      return { ...result, price, lease };
+      return { ...result, ...await allowance(tx, prefix), price, lease };
     }, 'repeatable read');
     if (!preflight) return c.json({ error: 'agent_unavailable' }, 503);
     const { lease } = preflight;
-    if (!lease) return c.json({ reason: 'lease_not_active' }, 402);
+    if (!lease) return c.json({ reason: 'ended', ...endedAllowance }, 402);
     if (preflight.status !== 'served') return c.json({ price_minor: Number(preflight.price), remaining_minor: Number(preflight.hold), provenance: 'computed', reason: meterReasons[preflight.status] }, 402);
-    const admission = tool.admit(TEXT);
+    if (!preflight.remaining_calls) return c.json({ error: 'demo_limit', reason: preflight.limit_reason,
+      remaining_calls: 0, resets_at: preflight.resets_at }, 429);
+    const admission = tool.admit(SHOWCASE_TEXT);
     if (!admission) return c.json({ error: 'agent_unavailable' }, 503);
     try {
       // The model runs inside the charging transaction, under the same bounded lock wait and overall deadline as an MCP call.
@@ -89,19 +112,19 @@ export function showcaseRoutes(db: Database, fixtureLease: string | null, secret
         const payment = await lockedTransaction(db, lease, { ...deadlines, entered }, async (tx, signal, endWait, arm) => {
           await arm(); // what is left of the one budget, not a fresh wait
           await tx.query('select pg_advisory_xact_lock(234171,4)');
-          if (await selected(tx) !== lease) return { status: 402 as const, body: { reason: 'lease_not_active' } };
-          const available = await remaining(tx, prefix);
-          if (!available) return { status: 429 as const, body: { error: 'demo_limit', remaining_calls: 0 } };
+          if (await selected(tx) !== lease) return { status: 402 as const, body: { reason: 'ended', ...endedAllowance } };
+          const available = await allowance(tx, prefix);
+          if (!available.remaining_calls) return { status: 429 as const, body: { error: 'demo_limit', reason: available.limit_reason, remaining_calls: 0, resets_at: available.resets_at } };
           const call = await commitUsageInTransaction(tx, lease, { kind: 'tool', tool_id: tool.name, idempotency_key: prefix + randomUUID() }, { recordRefusal: false });
           price = call.amount_minor;
           const { hold } = await balances(tx, lease);
           const amounts = { price_minor: Number(call.amount_minor), remaining_minor: Number(hold), provenance: 'computed' };
           if (call.status !== 'served') return { status: 402 as const, body: { ...amounts, reason: meterReasons[call.status] } };
           await endWait();
-          output ??= runBeforeDeadline(signal2 => admission.run(TEXT, signal2), signal); // a serialization retry must not call the model twice
+          output ??= runBeforeDeadline(signal2 => admission.run(SHOWCASE_TEXT, signal2), signal); // a serialization retry must not call the model twice
           await output;
           if (!await windowStillOpen(tx, lease)) throw new WindowClosed();
-          return { status: 200 as const, body: { ...amounts, remaining_calls: available - 1 } };
+          return { status: 200 as const, body: { ...amounts, remaining_calls: available.remaining_calls - 1 } };
         });
         if (payment.status !== 200) return c.json(payment.body, payment.status);
         return c.json({ ...payment.body, result: await output });
@@ -135,7 +158,7 @@ export function showcaseRoutes(db: Database, fixtureLease: string | null, secret
       const lease = await selected(tx);
       return lease ? checkUsage(tx, lease, price, true) : null;
     }, 'repeatable read');
-    if (!result) return c.json({ reason: 'lease_not_active' }, 402);
+    if (!result) return c.json({ reason: 'ended', ...endedAllowance }, 402);
     return c.json({
       provenance: 'computed', price_minor: Number(price), remaining_minor: Number(result.hold),
       reason: result.status === 'served' ? null : meterReasons[result.status],

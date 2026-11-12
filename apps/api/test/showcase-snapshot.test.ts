@@ -14,8 +14,8 @@ test('the public live showcase returns one repeatable-read journal snapshot', as
       isolations.push(isolation);
       const tx = { query: async (sql: string) => {
         if (sql.includes('transaction_timestamp()')) return { rows: [{ read_at: new Date('2026-11-12T12:00:00Z') }] };
-        if (sql.includes('from public.leases l where')) return { rows: [{ id: lease, state: 'active', cap_minor: '200', unsettled_limit_minor: '100', guaranteed_now: true, authorizations: [{ status: 'created', amount_minor: '200', honor_until: '2026-11-15T12:00:00Z' }], balances: { hold_available: '197', committed_unsettled: '3', total_captured: '0' } }] };
-        if (sql.includes('from public.ledger_entries where')) return { rows: [] };
+        if (sql.includes('from public.leases l where')) return { rows: [{ id: lease, state: 'active', cap_minor: '200', unsettled_limit_minor: '100', guaranteed_now: true, authorizations: [{ status: 'created', paypal_authorization_id: 'FIXTURE1234', amount_minor: '200', honor_until: '2026-11-15T12:00:00Z' }], balances: { hold_available: '197', committed_unsettled: '3', total_captured: '0' } }] };
+        if (sql.includes('from public.ledger_entries where')) return { rows: [{ id: '53', group_id: 'fixture-global-group', account: 'HOLD_AVAILABLE', direction: 'D', amount_minor: '200', ref_type: 'authorize', ref_id: 'fixture-ref', created_at: new Date('2026-11-12T12:00:00Z') }] };
         if (sql.includes('from public.tool_calls t')) return { rows: [] };
         if (sql.includes('from public.captures where')) return { rows: [] };
         if (sql.includes('select count(*)::int as total')) return { rows: [{ total: 0, daily: 0, ip: 0 }] };
@@ -32,6 +32,12 @@ test('the public live showcase returns one repeatable-read journal snapshot', as
   const body = await response.json();
   assert.equal(body.lease.balances.hold_available, 197);
   assert.equal(body.read_at, '2026-11-12T12:00:00.000Z');
+  assert.equal(body.lease.authorizations[0].paypal_authorization_id, '1234');
+  assert.equal(body.lease.authorizations[0].paypal_authorization_last4, '1234');
+  assert.equal(body.lease.balances.spendable_minor, 97);
+  assert.equal(body.journal.entries[0].id, 1);
+  assert.equal(body.journal.entries[0].group_id, 'group-1');
+  assert.equal(body.limit_reason, null);
 });
 
 test('the public price preview never locks the live lease', async () => {
@@ -60,6 +66,7 @@ test('a denied public run does not lock, admit a model, or write a call', async 
       if (sql.includes('from public.tools')) return { rows: [{ active: true, price_minor: '3' }] };
       if (sql.includes('from public.leases l')) return { rows: [{ state: 'active', unsettled_limit_minor: '100', within_window: true, voiding: false }] };
       if (sql.includes('from public.ledger_entries')) return { rows: [{ hold: '0', committed: '0' }] };
+      if (sql.includes('select count(*)::int as total')) return { rows: [{ total: 0, daily: 0, ip: 0 }] };
       throw new Error(`Unexpected query: ${sql}`);
     } });
   } } as unknown as Database;
@@ -68,7 +75,27 @@ test('a denied public run does not lock, admit a model, or write a call', async 
   assert.equal(response.status, 402);
   assert.equal((await response.json()).reason, 'cap_reached');
   assert.equal(admitted, 0);
-  assert.equal(statements.some(sql => /insert|advisory|tool_calls/i.test(sql)), false);
+  assert.equal(statements.some(sql => /insert|advisory/i.test(sql)), false);
+});
+
+test('an exhausted public allowance explains the limit before attempting a model call', async () => {
+  const lease = '11111111-1111-4111-8111-111111111111';
+  let admitted = 0;
+  const db = { transaction: async (_lease: string | null, work: (tx: unknown) => Promise<unknown>) => work({ query: async (sql: string) => {
+    if (sql.includes('from public.tools')) return { rows: [{ active: true, price_minor: '3' }] };
+    if (sql.includes('from public.leases l')) return { rows: [{ state: 'active', unsettled_limit_minor: '777', within_window: true, voiding: false }] };
+    if (sql.includes('from public.ledger_entries')) return { rows: [{ hold: '777', committed: '0' }] };
+    if (sql.includes('select count(*)::int as total')) return { rows: [{ total: 0, daily: 24, ip: 0 }] };
+    throw new Error(`Unexpected query: ${sql}`);
+  } }) } as unknown as Database;
+  const app = showcaseRoutes(db, lease, 'fixture secret', { name: 'summarise', description: 'fixture', admit: () => { admitted++; return null; } }, 160);
+  const response = await app.request('http://localhost/showcase/run', { method: 'POST', headers: { 'content-type': 'application/json' } });
+  assert.equal(response.status, 429);
+  const body = await response.json();
+  assert.equal(body.reason, 'daily');
+  assert.equal(body.remaining_calls, 0);
+  assert.match(body.resets_at, /^\d{4}-\d\d-\d\dT00:00:00.000Z$/);
+  assert.equal(admitted, 0);
 });
 
 test('a cap closed between preflight and commit leaves no public refusal row', async () => {

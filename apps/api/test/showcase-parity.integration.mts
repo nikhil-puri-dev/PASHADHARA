@@ -52,7 +52,7 @@ function rig(lease: string) {
   };
   const showcase = showcaseRoutes(db, lease, randomUUID(), tool, 100);
   const run = () => showcase.request('http://localhost/showcase/run', { method: 'POST', headers: { 'content-type': 'application/json' } });
-  return { callMcp, run, token, providerCalls: () => providerCalls };
+  return { callMcp, run, token, mcp, providerCalls: () => providerCalls };
 }
 
 const state = (lease: string) => db.transaction(null, async tx => ({
@@ -109,16 +109,18 @@ test('an over-cap call is refused on both paths with no new commit and no new se
   assert.equal(g.providerCalls(), calls, 'no provider call after either refusal');
 });
 
-test('refusal after void: MCP with that lease token gets window_ended and nothing is charged (the token itself is not revoked)', async () => {
+test('refusal after void: MCP revokes that lease token and nothing is charged', async () => {
   const lease = await activeLease(100n);
   const g = rig(lease);
   const voidCall = await kernel.beginVoid(db, lease);
   await kernel.markCallSent(db, lease, voidCall.call_id);
   await kernel.completeVoid(db, lease, voidCall.call_id, { http_status: 204, body: {} });
   const before = await state(lease);
-  const result = await g.callMcp('after void');
-  assert.equal(result.isError, true, 'refused');
-  console.log('void mcp result', JSON.stringify(result));
+  const response = await g.mcp.request('http://localhost/mcp', {
+    method: 'POST', headers: { ...headers, authorization: `Bearer ${g.token}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'summarise', arguments: { text: 'after void', idempotency_key: key('after void') } } }),
+  });
+  assert.equal(response.status, 401);
   assert.deepEqual(await state(lease), before);
   assert.equal(g.providerCalls(), 0);
 });
@@ -135,4 +137,17 @@ test('showcase Run on a voided lease is refused, nothing charged', async () => {
   assert.equal((await response.json() as { reason: string }).reason, 'window_ended');
   assert.deepEqual(await state(lease), before);
   assert.equal(g.providerCalls(), 0);
+});
+
+test('a 777-cent showcase hold admits 777 cents and refuses 778 before a provider call', async () => {
+  const lease = await activeLease(777n, 777n);
+  const g = rig(lease);
+  const showcase = showcaseRoutes(db, lease, randomUUID(), { name: 'summarise', description: 'fixture', admit: () => null }, 100);
+  const within = await showcase.request('http://localhost/showcase/try?price_minor=777', { method: 'POST' });
+  const over = await showcase.request('http://localhost/showcase/try?price_minor=778', { method: 'POST' });
+  assert.equal(within.status, 200);
+  assert.equal(over.status, 402);
+  assert.equal((await over.json()).reason, 'cap_reached');
+  assert.equal(g.providerCalls(), 0);
+  assert.equal((await state(lease)).served, 0);
 });

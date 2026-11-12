@@ -1,6 +1,7 @@
 import type { KernelPort } from './kernel-port.ts';
 import type { RouteHandler } from './routes.ts';
 import { ApiError, requestId } from './request-log.ts';
+import { PayPalError } from '../../../packages/paypal/src/index.ts';
 type Gateway = {
   verifyWebhookSignature(payload: { auth_algo: string; cert_url: string; transmission_id: string; transmission_sig: string; transmission_time: string; webhook_id: string; webhook_event: unknown }, requestId: string, rawEvent?: string): Promise<{body: unknown}>;
   getCapture(id: string): Promise<{body: unknown; status?: number}>;
@@ -35,10 +36,16 @@ export async function receiveWebhook(event: unknown, headers: Headers, webhookId
   if (!isEvent(event)) throw new TypeError('Invalid event id or type');
   const item = event;
   const [auth_algo, cert_url, transmission_id, transmission_sig, transmission_time] = signatureHeaders.map(name => headers.get(name)!);
-  const result = await paypal.verifyWebhookSignature({
-    auth_algo: auth_algo!, cert_url: cert_url!, transmission_id: transmission_id!, transmission_sig: transmission_sig!,
-    transmission_time: transmission_time!, webhook_id: webhookId, webhook_event: event,
-  }, requestId, rawEvent);
+  let result: { body: unknown };
+  try {
+    result = await paypal.verifyWebhookSignature({
+      auth_algo: auth_algo!, cert_url: cert_url!, transmission_id: transmission_id!, transmission_sig: transmission_sig!,
+      transmission_time: transmission_time!, webhook_id: webhookId, webhook_event: event,
+    }, requestId, rawEvent);
+  } catch (error) {
+    if (error instanceof PayPalError) throw new ApiError(`PayPal webhook verification rejected HTTP ${error.status}`);
+    throw error;
+  }
   const status = (result.body as { verification_status?: string } | null)?.verification_status;
   if (status === 'FAILURE') {
     await kernel.recordWebhook(item.id, { event_type: item.event_type }, false);

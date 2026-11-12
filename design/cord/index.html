@@ -413,6 +413,27 @@ pre.snip{font:400 .9375rem/1.6 var(--font-data);background:var(--walnut);color:v
   .pcord svg{width:96px}
 }
 @media (prefers-reduced-motion:reduce){.tabs button,.chips button{transition:none}}
+/* Spending instrument, ported to apps/web/app/pd.css. */
+.instrument{--face:#152421;--face-ink:#f4f0df;--face-muted:#bac9be;--accent:#e9c38a;--face-rule:#60736a;background:var(--face);color:var(--face-ink);padding:clamp(17px,3vw,36px);display:grid;gap:16px;min-width:0}
+.instrument .caption{color:var(--face-muted);font:500 .75rem/1.4 var(--data,monospace);letter-spacing:.065em;text-transform:uppercase}
+.instrument .reading{display:grid;grid-template-columns:1fr auto;gap:8px 12px;align-items:end}
+.instrument .digits{display:block;font:500 clamp(2.75rem,6vw,5.5rem)/1 var(--data,monospace);letter-spacing:-.08em;font-variant-numeric:tabular-nums}
+.instrument .minor{font:500 1.1rem var(--data,monospace);font-variant-numeric:tabular-nums}
+.instrument .rail{height:25px;position:relative;margin:0 2.25rem 0 0;border-bottom:1px solid var(--face-rule)}
+.instrument .rail::before{content:"";position:absolute;left:0;right:0;bottom:0;border-bottom:3px solid var(--face-muted)}
+.instrument .rail::after{content:"";position:absolute;right:0;bottom:-7px;width:2px;height:32px;background:var(--accent)}
+.instrument .strike{position:absolute;right:-1px;bottom:7px;height:3px;width:52%;transform-origin:left;background:var(--accent);animation:arrive 260ms cubic-bezier(.2,.75,.35,1) both}
+@keyframes arrive{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media(prefers-reduced-motion:reduce){.instrument .strike{animation:none}}
+.instrument .task{border-top:1px solid var(--face-rule);padding-top:12px;display:grid;gap:4px}
+.instrument .actionline{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap}
+.instrument .instrument-action{background:var(--accent);color:#1d261f;border:1px solid var(--accent);border-radius:2px;min-height:44px;padding:0 16px;font:700 1rem var(--ui,system-ui);cursor:pointer}
+.instrument .instrument-action:disabled{opacity:.65;cursor:wait}
+.instrument .instrument-action:focus-visible,.instrument a:focus-visible{outline:2px solid white;outline-offset:3px}
+.instrument a{color:var(--face-ink)}
+.instrument .receipt{border-left:3px solid var(--accent);padding:4px 12px;display:grid;gap:4px}
+.instrument .receipt strong{font-size:1.125rem}
+.instrument .receipt p{font-size:.95rem}
 </style>
 </head>
 <body>
@@ -992,11 +1013,16 @@ const FAQ=[
    lease cannot offer a live spending action. Keep the sample as a separate simulation. */
 V.home=()=>`
 <section class="hero"><div class="wrap">
-  <h1>Give your agent a budget it cannot break.</h1>
-  <p class="lede">One PayPal hold becomes a spending limit that lives outside the model. Approve once, watch it spend, void whenever you want.</p>
-  <div class="ctas"><a class="btn accent" href="delegation.html">Explore the $5,000 delegation study</a><a class="btn" href="#/" data-act="sample">Explore a sample lease</a></div>
-  <div class="herocord"><div id="herocord"></div><div class="herolog" id="herolog" aria-live="off"></div><button class="btn sm" id="heroPause" data-act="hero-pause" aria-pressed="false">Pause the demo</button></div>
-  <p class="sr">An animated lease cord. An agent ties paid calls onto a twenty dollar hold, calls are settled in one capture, and a call that would pass the cap is refused.</p>
+  <h1>Give agents room to spend. Set the line they can’t cross.</h1>
+  <p class="lede">A buyer approves one PayPal hold. The agent can use paid tools without asking again. The gateway checks each request before the tool runs.</p>
+<section class="instrument" aria-labelledby="instrument-demo-title">
+  <span class="caption">Recorded PayPal sandbox · 12 Nov 2026</span>
+  <div class="reading"><div><span class="caption">Available at request · computed</span><strong class="digits">$0.06</strong></div><div><span class="caption">Buyer approved</span><br><strong class="minor">$0.06 hold</strong></div></div>
+  <div class="rail" aria-hidden="true"></div>
+  <div class="task"><span class="caption">Prepared request</span><h2 id="instrument-demo-title">Check invoice payments</h2><p>Ask for the full bundle of payment evidence. The invoice data are fixtures.</p></div>
+  <div class="actionline"><button class="instrument-action" id="replayBoundary">Replay request · $0.07</button><span class="caption">Recorded request</span></div>
+  <div class="receipt" id="boundaryReceipt" role="status" hidden style="display:none"></div>
+</section>
 </div></section>
 
 <section class="why sect" id="why" style="margin-top:var(--s9)"><div class="wrap">
@@ -1089,7 +1115,7 @@ V.home=()=>`
 </div></section>`;
 function initHome(){
   HD.paused=false;HD.items=[];HD.i=0;HD.note="";HD.drop=null;
-  heroPaint(true); howPaint(0); heroStart();
+  howPaint(0);
 }
 
 /* ---------- sign up and log in ---------- */
@@ -1283,7 +1309,7 @@ function mount(){
   const mode=v==="home"?"site":v==="flow"?"flow":"app";
   document.body.classList.toggle("lease",v==="lease");
   const main=$("#main");
-  if(v==="home"){renderChrome("site",v);document.title="Pashadhara | A budget your agent cannot break";main.innerHTML=V.home();initHome()}
+  if(v==="home"){renderChrome("site",v);document.title="Pashadhara | A budget your agent cannot break";main.innerHTML=V.home();initHome();document.querySelector('#replayBoundary').onclick=()=>{const receipt=document.querySelector('#boundaryReceipt');if(!receipt.hidden)return;receipt.hidden=false;receipt.style.display='';receipt.innerHTML='<strong>Refused · $0.01 over the limit</strong><p>Tool did not run. $0.00 charged. $0.06 remained available.</p><a href="../../apps/web/public/finance-paypal-proof.json">Open the journal and PayPal read</a>';const strike=document.createElement('span');strike.className='strike';document.querySelector('.instrument .rail').append(strike)}}
   else if(v==="flow"){main.innerHTML=V.flow();paintFlow(mount.once?"h1":null)}
   else{
     renderChrome("app",v);

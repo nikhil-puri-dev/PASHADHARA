@@ -59,6 +59,9 @@ test('the built Vercel API serves requests without node_modules', async t => {
   const health = await fetch(origin + '/api/health');
   assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), { status: 'ok' });
+  const databaseHealth = await fetch(origin + '/api/health/db');
+  assert.equal(databaseHealth.status, 200);
+  assert.equal((await databaseHealth.json()).database, 'reachable');
   assert.equal((await fetch(origin + '/health')).status, 404);
   const spec = await fetch(origin + '/api/openapi.json');
   assert.equal(spec.status, 200);
@@ -66,7 +69,7 @@ test('the built Vercel API serves requests without node_modules', async t => {
   assert.deepEqual(served.servers, [{ url: '/api' }]);
   const expected = new Set(['listLeases', 'createLease', 'getLease', 'authorizeLease', 'recoverPayouts',
     'settleLease', 'reauthorizeLease', 'closeLease', 'getJournal', 'listTools', 'createJob', 'getJob',
-    'deliverJob', 'createSeller', 'reconcileLease']);
+    'deliverJob', 'createSeller', 'reconcileLease', 'receivePayPalWebhook']);
   for (const [path, methods] of Object.entries(served.paths as Record<string, Record<string, { operationId: string }>>)) {
     for (const [method, operation] of Object.entries(methods)) {
       assert.ok(expected.delete(operation.operationId), operation.operationId);
@@ -86,5 +89,5 @@ test('the built Vercel API serves requests without node_modules', async t => {
       'paypal-transmission-id': 'fixture', 'paypal-transmission-sig': 'fixture', 'paypal-transmission-time': 'fixture',
     },
     body: JSON.stringify({ id: 'fixture', event_type: 'PAYMENT.CAPTURE.COMPLETED', resource: { id: 'capture' } }),
-  })).status, 404);
+  })).status, 503);
 });

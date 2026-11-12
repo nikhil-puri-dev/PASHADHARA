@@ -1,8 +1,8 @@
 import type { Database, Tx } from '../../../packages/kernel/src/db.ts';
-import { commitUsageInTransaction } from '../../../packages/kernel/src/usage.ts';
+import { commitUsageInTransaction, previewUsage } from '../../../packages/kernel/src/usage.ts';
 import { balances } from '../../../packages/kernel/src/journal.ts';
 import { logError } from './request-log.ts';
-import type { Meter } from './mcp.ts';
+import type { PreviewMeter } from './mcp.ts';
 
 export const meterReasons = {
   refused_cap: 'cap_reached', refused_exposure: 'exposure_limit',
@@ -97,13 +97,26 @@ export async function windowStillOpen(tx: Tx, lease: string) {
  * such a rollback can repeat provider work: the buyer is charged at most once, the repeat is bounded by the
  * caller limits and the AI spend cap.
  */
-export function kernelMeter(db: Database, deadlines?: Deadlines, results?: ResultStore): Meter {
-  return async (lease, tool, key, work, entered) => {
+export function kernelMeter(db: Database, deadlines?: Deadlines, results?: ResultStore): PreviewMeter {
+  const meter: PreviewMeter = async (lease, tool, key, work, entered, admit) => {
     let price = 0n;
     try {
       const store = results && await results.usable() ? results : undefined;
       let output: Promise<Record<string, unknown>> | undefined;
+      let admitted: boolean | undefined;
       const result = await lockedTransaction(db, lease, { ...deadlines, entered }, async (tx, signal, endWait) => {
+        // Under the lease lock, before any admission or posting: one UUID is bound to one full key (tool and input digest).
+        // The unique constraint covers the whole key, so without this a reused UUID with other input would charge again.
+        if (key.length > 37 && key[36] === ':' && (await tx.query(
+          'select 1 from public.tool_calls where lease_id=$1 and left(idempotency_key,37)=$2 and idempotency_key<>$3 limit 1', [lease, key.slice(0, 37), key])).rowCount) {
+          return { conflict: true as const };
+        }
+        // Admission (provider ready, AI spend reserved) is asked for only when the call can really run: never for a replay.
+        const known = (await tx.query('select 1 from public.tool_calls where lease_id=$1 and idempotency_key=$2', [lease, key])).rowCount;
+        if (!known && admit) {
+          admitted ??= admit(); // a serialization retry must not reserve twice
+          if (!admitted) return { unavailable: true as const };
+        }
         const usage = await commitUsageInTransaction(tx, lease, { kind: 'tool', tool_id: tool, idempotency_key: key });
         price = usage.amount_minor;
         if (usage.replayed) {
@@ -121,6 +134,8 @@ export function kernelMeter(db: Database, deadlines?: Deadlines, results?: Resul
         const { hold } = await balances(tx, lease);
         return { usage, output, hold };
       });
+      if ('conflict' in result) return { ok: false, error: 'idempotency_conflict' };
+      if ('unavailable' in result) return { ok: false, error: 'tool_unavailable' };
       const { usage } = result;
       if (usage.replayed) {
         const { stored, hold } = result as { stored?: { tool_call_id: string; result: Record<string, unknown> } | null; hold: bigint };
@@ -148,6 +163,9 @@ export function kernelMeter(db: Database, deadlines?: Deadlines, results?: Resul
       return { ok: false, error: 'metering_unavailable' };
     }
   };
+  // Free preview for one lease: the kernel's own check, nothing posted, nothing locked.
+  meter.preview = (lease, price) => previewUsage(db, lease, price);
+  return meter;
 }
 
 /** Durable store of served results, written inside the charging transaction (see sql/tool_results.sql). */
@@ -162,8 +180,10 @@ export function resultStore(db: Database): ResultStore {
     // A missing table means replay is off and a reused key is refused, as before.
     usable: async () => {
       if (usable) return usable;
-      // Only a positive answer is cached, so a transient probe failure is retried on the next call.
-      const ok = await db.transaction(null, tx => tx.query("select to_regclass('public.tool_results') is not null as ok")).then(r => (r.rows[0] as { ok: boolean }).ok, () => false);
+      // Only a positive answer is cached; a probe error is retried on the next call.
+      // A failed probe is not 'no table': it throws, so the call answers metering_unavailable and charges nothing. Serving
+      // without the store would charge the buyer for a product that a retry could not get back.
+      const ok = await db.transaction(null, tx => tx.query("select to_regclass('public.tool_results') is not null as ok")).then(r => (r.rows[0] as { ok: boolean }).ok);
       if (ok) usable = Promise.resolve(true);
       return ok;
     },

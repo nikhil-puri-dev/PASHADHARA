@@ -55,7 +55,7 @@ test('same key replays the stored product with no second charge, no second provi
   assert.equal(replay.structuredContent.receipt.remaining_minor, 8);
   assert.equal(g.runs(), 1);
   assert.deepEqual(await counts(lease), before);
-  assert.equal(g.cancels(), 1, 'the replay must release its admission');
+  assert.equal(g.cancels(), 0, 'a replay asks for no admission, so nothing is left to release');
 });
 
 test('a replayed refusal stays a refusal and charges nothing', async () => {

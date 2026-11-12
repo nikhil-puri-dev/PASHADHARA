@@ -41,7 +41,7 @@ export function summariseTool(options: { apiKey: string | undefined; limitUsd: n
   const log = options.log ?? (line => console.log(JSON.stringify(line)));
   return {
     name: 'summarise',
-    description: `Summarise text in at most three sentences with ${SUMMARISE_MODEL}. Costs ${SUMMARISE_PRICE_MINOR} cents per call.`,
+    description: `Summarise text in at most three sentences with ${SUMMARISE_MODEL}.`,
     spend,
     admit(text: string): Admission | null {
       if (!options.apiKey) return null;

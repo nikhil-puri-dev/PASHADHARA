@@ -11,4 +11,12 @@ create table if not exists public.tool_results (
   foreign key (tool_call_id) references public.tool_calls(id)
 );
 revoke all on public.tool_results from public;
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    revoke all on public.tool_results from anon;
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    revoke all on public.tool_results from authenticated;
+  end if;
+end $$;
 grant select, insert on public.tool_results to pashadhara_app;

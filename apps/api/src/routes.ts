@@ -132,7 +132,9 @@ export function createRoutes(contract: Contract, handlers: Record<string, RouteH
         try { result = await handler({ params, query, body, rawBody, request: c.req.raw, principal }); }
         catch (error) {
           logError(c.req.raw, name, error);
-          return problem(500, 'Operation failed');
+          return name === 'receivePayPalWebhook'
+            ? problem(503, 'Webhook verification or reconciliation unavailable')
+            : problem(500, 'Operation failed');
         }
         const response = operation.responses[String(result.status)];
         if (!response) {

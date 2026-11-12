@@ -21,7 +21,7 @@ async function main() {
     const input = { request: new Request('http://localhost'), principal: null, query: {}, params: { leaseId: leaseId ?? '' } };
     if (action === 'create') {
       await seedSummarise(db, SELLER_A_EMAIL);
-      const created = await flow.create({ ...input, body: { buyer_ref: 'public-showcase', cap_minor: 1000, unsettled_limit_minor: 700 } });
+      const created = await flow.create({ ...input, body: { buyer_ref: 'public-showcase', cap_minor: 777, unsettled_limit_minor: 777 } });
       if (created.status !== 201) throw new Error('Sandbox order creation failed.');
       const body = created.body as { lease_id: string; approve_url: string };
       await db.transaction(null, tx => tx.query('insert into public.showcase_leases(lease_id) values ($1)', [body.lease_id]));

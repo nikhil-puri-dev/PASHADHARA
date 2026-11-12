@@ -69,7 +69,7 @@ app.all('*', async c => {
       mcpAllowedOrigins: baseUrl ? [new URL(callbackBase(baseUrl)).origin] : [],
       meter: kernelMeter(db, undefined, resultStore(db)),
       tools: [tool, ...financeTools],
-      webhook: paypal && webhookId ? { webhookId, paypal, kernel: webhookStore(db) } : undefined,
+      webhook: paypal ? { webhookId: webhookId ?? '', paypal, kernel: webhookStore(db) } : undefined,
       handlers: {
         ...settlement?.handlers,
         ...(escrow && { recoverPayouts: async input => {
@@ -89,16 +89,25 @@ app.all('*', async c => {
         },
       },
     });
+    api.get('/health/db', async c => {
+      const read_at = await db.transaction(null, async tx => (await tx.query<{ read_at: Date }>(
+        'select clock_timestamp() as read_at',
+      )).rows[0]!.read_at.toISOString());
+      return c.json({ status: 'ok', database: 'reachable', read_at });
+    });
     if (settlement) api.post('/internal/settlement/sweep', async c => {
       const digest = (value: string) => createHash('sha256').update(value).digest();
-      if (!timingSafeEqual(digest(c.req.header('Authorization') ?? ''), digest(`Bearer ${admin}`))) {
+      const authorization = digest(c.req.header('Authorization') ?? '');
+      const cron = process.env.CRON_SECRET ?? '';
+      if (!timingSafeEqual(authorization, digest(`Bearer ${admin}`))
+        && !(cron.length >= 16 && timingSafeEqual(authorization, digest(`Bearer ${cron}`)))) {
         return c.json({ error: 'Unauthorized' }, 401);
       }
       const results = await settlement.sweep();
       return c.json({ provenance: 'computed', results });
     });
     api.route('/', showcaseRoutes(
-      db, null, secret, tool, Number.isSafeInteger(budget) && budget > 0 ? Math.floor(budget / 5) : 0,
+      db, null, secret, tool, Number.isSafeInteger(budget) && budget > 0 ? budget : 0,
     ));
     if (approval) api.route('/', approval.callbacks);
     else api.get('/paypal/:action/:leaseId', c => c.json({ status: 'unavailable' }, 503));

@@ -121,3 +121,47 @@ test('a meter that returns ok without a result does not typecheck', () => {
   const withoutResult: Meter = async () => ({ ok: true });
   assert.equal(typeof withoutResult, 'function');
 });
+
+test('a bare UUID is bound to tool and text by the server; the digest form still works', async () => {
+  const seen: string[] = [];
+  const app = createMcp(async (_l, _t, k, work) => { seen.push(k); return { ok: true, result: await work(new AbortController().signal) }; }, async () => 'fixture-lease', available);
+  const id = '3f2b8c1e-9d4a-4e7b-a1c2-5d6e7f8a9b0c';
+  await rpc(app, 'tools/call', { name: 'text_stats', arguments: { text: 'hello', idempotency_key: id } });
+  await rpc(app, 'tools/call', { name: 'text_stats', arguments: { text: 'hello', idempotency_key: id.toUpperCase() } });
+  await rpc(app, 'tools/call', { name: 'text_stats', arguments: { text: 'hello', idempotency_key: key('text_stats', 'hello', id) } });
+  assert.deepEqual(seen, Array(3).fill(key('text_stats', 'hello', id)));
+});
+
+test('a missing or malformed idempotency_key is refused before the meter, saying what to send', async () => {
+  let called = false;
+  const app = createMcp(async (_l, _t, _k, work) => { called = true; return { ok: true, result: await work(new AbortController().signal) }; }, async () => 'fixture-lease', available);
+  for (const args of [{ text: 'hello' }, { text: 'hello', idempotency_key: 'abc' }, { text: 'hello', idempotency_key: `${'1'.repeat(36)}x` }]) {
+    const message = await rpc(app, 'tools/call', { name: 'text_stats', arguments: args });
+    assert.equal(message.result.isError, true);
+    assert.match(message.result.content[0].text, /new random UUID/);
+  }
+  assert.equal(called, false);
+});
+
+test('tools/list asks for a bare UUID and still marks the key required', async () => {
+  const message = await rpc(createMcp(async () => ({ ok: false, error: 'metering_unavailable' }), async () => null, available), 'tools/list');
+  const schema = message.result.tools[0].inputSchema;
+  assert.deepEqual(schema.required, ['text', 'idempotency_key']);
+  assert.match(schema.properties.idempotency_key.description, /UUID/);
+  assert.doesNotMatch(schema.properties.idempotency_key.description, /SHA-256/);
+  assert.equal(schema.properties.idempotency_key.pattern, undefined);
+});
+
+test('the meter asks for admission through a hook, and a fake that only calls work still gets it', async () => {
+  let admits = 0;
+  const tools = [{ name: 'text_stats', description: 'x', admit: () => { admits++; return { run: async () => ({ ok: 1 }), cancel() {} }; } }];
+  const viaHook = createMcp(async (_l, _t, _k, work, _e, admit) => { assert.equal(admits, 0); assert.equal(admit?.(), true); assert.equal(admit?.(), true); return { ok: true, result: await work(new AbortController().signal) }; }, async () => 'l', available, tools);
+  await rpc(viaHook, 'tools/call', { name: 'text_stats', arguments: { text: 'a', idempotency_key: '3f2b8c1e-9d4a-4e7b-a1c2-5d6e7f8a9b0c' } });
+  assert.equal(admits, 1, 'admission is requested once per call even if the hook and work both ask');
+});
+
+test('the summarise description carries no hard-coded price, the registry owns it', async () => {
+  const { summariseTool } = await import('../src/summarise.ts');
+  const tool = summariseTool({ apiKey: 'x', limitUsd: 1 });
+  assert.doesNotMatch(tool.description, /cent|\$|USD|price/i);
+});

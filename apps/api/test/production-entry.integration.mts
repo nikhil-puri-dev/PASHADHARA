@@ -71,6 +71,9 @@ test('production entry serves sandbox approval, scoped auth and durable signed w
     }
     assert.fail(`Unexpected fixture URL ${target.pathname}`);
   });
+  const liveDb = await app.request('/api/health/db');
+  assert.equal(liveDb.status, 200);
+  assert.equal((await liveDb.json()).database, 'reachable');
 
   const post = (path: string, body: unknown, token?: string) => app.request(path, {
     method: 'POST', body: JSON.stringify(body),
@@ -203,9 +206,9 @@ test('production entry serves sandbox approval, scoped auth and durable signed w
   assert.equal((await send({ ...event, resource: { id: randomUUID(), status: 'DENIED' } }, sign(wire(event)))).status, 400);
   assert.equal(captureReads, 0);
   failCaptureRead = true;
-  assert.equal((await send()).status, 500);
+  assert.equal((await send()).status, 503);
   captures.set(captureId, { ...read, seller_receivable_breakdown: { paypal_fee: money('2.00') } });
-  assert.equal((await send()).status, 500);
+  assert.equal((await send()).status, 503);
   await db.transaction(null, async tx => {
     const unresolved = (await tx.query(`select c.state,e.processed_at from public.paypal_calls c
       cross join public.webhook_events e where c.id=$1 and e.id=$2 and e.signature_verified`, [capture.call_id, event.id])).rows[0];

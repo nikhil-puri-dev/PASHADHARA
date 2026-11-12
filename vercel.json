@@ -12,5 +12,9 @@
   "rewrites": [
     { "source": "/api/:path*", "destination": { "service": "api" } },
     { "source": "/(.*)", "destination": { "service": "web" } }
-  ]
+  ],
+  "schedules": {
+    "demo-db-liveness": { "schedule": "*/15 * * * *", "path": "/api/health/db", "requestMethod": "GET" },
+    "settlement-sweep": { "schedule": "*/15 * * * *", "path": "/api/internal/settlement/sweep", "requestMethod": "POST" }
+  }
 }

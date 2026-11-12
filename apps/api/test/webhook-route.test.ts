@@ -6,6 +6,7 @@ import { parse } from 'yaml';
 import type { Database } from '../../../packages/kernel/src/db.ts';
 import { createApp } from '../src/app.ts';
 import type { Contract } from '../src/routes.ts';
+import { PayPalError } from '../../../packages/paypal/src/index.ts';
 
 const contract = parse(readFileSync(new URL('../../../packages/contract/openapi.yaml', import.meta.url), 'utf8')) as Contract;
 const fixture = { id: 'fixture-event', event_type: 'PAYMENT.CAPTURE.COMPLETED', resource: { id: 'fixture-capture' } };
@@ -80,11 +81,32 @@ test('fixture: signed webhook delivery survives a forged copy and reconciles onc
   await getStarted;
   const overlap = await post(fixture, sign(fixture));
   releaseGet();
-  assert.equal((await first).status, 500);
-  assert.equal(overlap.status, 500);
+  assert.equal((await first).status, 503);
+  assert.equal(overlap.status, 503);
   assert.equal((await post(fixture, sign(fixture))).status, 200);
   assert.equal((await post(fixture, sign(fixture))).status, 200);
   assert.deepEqual(deliveries, [false, true, true, true, true]);
   assert.equal(reads, 2);
   assert.equal(applied, 1);
+});
+
+test('fixture: PayPal verification rejection and missing webhook ID are retryable without storing an event', async () => {
+  let stored = 0;
+  const make = (webhookId: string) => createApp({
+    contract, db: {} as Database, authenticate: async () => null, resolveMcpLease: async () => null,
+    webhook: { webhookId, paypal: {
+      async verifyWebhookSignature() { throw new PayPalError(400, {}, ['INVALID_REQUEST']); },
+      async getCapture() { assert.fail('not verified'); }, async getAuthorization() { assert.fail('not verified'); },
+    }, kernel: {
+      async recordWebhook() { stored++; return fixture; }, async claimWebhook() { assert.fail('not verified'); },
+      async reconcileWebhook() { assert.fail('not verified'); }, async releaseWebhook() {},
+    } },
+  });
+  const request = { method: 'POST', body: JSON.stringify(fixture), headers: {
+    'content-type': 'application/json', 'paypal-auth-algo': 'fixture', 'paypal-cert-url': 'https://fixture.invalid',
+    'paypal-transmission-id': 'fixture', 'paypal-transmission-time': '2026-11-12T00:00:00Z', 'paypal-transmission-sig': 'fixture',
+  } };
+  assert.equal((await make('fixture-id').request('/api/webhooks/paypal', request)).status, 503);
+  assert.equal((await make('').request('/api/webhooks/paypal', request)).status, 503);
+  assert.equal(stored, 0);
 });
