@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import "../app/pd.css";
 import { age, hold, useShowcase, usd, utc, type Showcase } from "../lib/showcase-store";
 
-export const NAV: [string, string][] = [["/budget", "Budget"], ["/activity", "Activity"], ["/collect", "Collect"], ["/escrow", "Escrow"], ["/developers", "Developers"], ["/proof", "Proof"]];
+export const NAV: [string, string][] = [["/", "Check"], ["/budget", "Budget"], ["/activity", "Journal"]];
 
 export function useNow(ms = 30_000) {
   const [now, setNow] = useState(() => Date.now());
@@ -19,8 +19,8 @@ export function Freshness({ s, now }: { s: ReturnType<typeof useShowcase>; now: 
   return <span>Budget read {utc(s.data.read_at ?? s.goodAt)}</span>;
 }
 
-export function Shell({ route, children }: { route: string; children: ReactNode }) {
-  const s = useShowcase();
+export function Shell({ route, recorded = false, children }: { route: string; recorded?: boolean; children: ReactNode }) {
+  const s = useShowcase(!recorded);
   const now = useNow();
   const [theme, setTheme] = useState<"light" | "dark" | null>(null);
   const [sysDark, setSysDark] = useState(false);
@@ -37,7 +37,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
   return (
     <div className="pd" data-theme={theme ?? undefined}>
       <a className="skip" href="#main">Skip to content</a>
-      <div className="sbx" role="note"><span>PayPal sandbox. No real money moves.</span><Freshness s={s} now={now} /></div>
+      <div className="sbx" role="note"><span>PayPal sandbox · No real money</span>{recorded ? <span>Replay</span> : <Freshness s={s} now={now} />}</div>
       <header className="hd">
         <Link className="brand" href="/" aria-label="Pashadhara home"><img src="/mark.svg" alt="" width={34} height={34} />Pashadhara</Link>
         <nav className="nav" aria-label="Main">
@@ -46,7 +46,7 @@ export function Shell({ route, children }: { route: string; children: ReactNode 
         <button className="tbtn" onClick={toggle} aria-pressed={dark}>{dark ? "Light view" : "Dark view"}</button>
       </header>
       <main id="main" tabIndex={-1}>{children}</main>
-      <footer className="foot"><span>Pashadhara. A PayPal authorization hold as an AI agent budget. Sandbox only.</span><span><Link href="/developers">Connect an agent</Link> · <Link href="/proof">PayPal evidence</Link></span></footer>
+      <footer className="foot"><span>Pashadhara. One PayPal sandbox hold. No real money.</span><span><Link href="/collect">Settle</Link> · <Link href="/escrow">Escrow</Link> · <Link href="/developers">Connect an agent</Link> · <Link href="/proof">Evidence</Link></span></footer>
     </div>
   );
 }
@@ -60,8 +60,10 @@ export function HoldNotice({ d }: { d: Showcase | null }) {
     <div className="notice end" role="status"><span><strong>Spending is closed.</strong> The PayPal guarantee for this hold ended{h.honor ? ` ${utc(h.honor)}` : ""}. The gateway refuses new paid calls. The record below stays readable.</span><Link className="btn sm" href="/activity">See the record</Link></div>
   );
   if (h.state === "expiring") {
-    const hrs = Math.max(1, Math.round((h.honorMs - now) / 3_600_000));
-    return <div className="notice" role="status"><span><strong>PayPal guarantees this hold for about {hrs} more hour{hrs === 1 ? "" : "s"}.</strong> After {utc(h.honor)} the gateway refuses paid calls until the owner approves a new hold.</span><Link className="btn sm" href="/developers#renew">How renewal works</Link></div>;
+    const mins = Math.max(0, Math.round((h.honorMs - now) / 60_000));
+    const hours = Math.round(mins / 60);
+    const when = mins < 45 ? "less than an hour" : `about ${hours} more hour${hours === 1 ? "" : "s"}`;
+    return <div className="notice" role="status"><span><strong>PayPal guarantees this hold for {when}.</strong> After {utc(h.honor)} the gateway refuses paid calls until the owner approves a new hold.</span><Link className="btn sm" href="/developers#renew">How renewal works</Link></div>;
   }
   return null;
 }

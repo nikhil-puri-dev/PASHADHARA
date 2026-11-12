@@ -35,15 +35,15 @@ export async function refreshShowcase() {
   } finally { inflight = false; }
 }
 
-export function useShowcase() {
+export function useShowcase(enabled = true) {
   useEffect(() => {
-    if (!timer) {
+    if (enabled && !timer) {
       void refreshShowcase();
       const tick = () => { if (document.visibilityState === "visible") void refreshShowcase(); };
       timer = setInterval(tick, 20_000);
       document.addEventListener("visibilitychange", tick);
     }
-  }, []);
+  }, [enabled]);
   return useSyncExternalStore(cb => { subs.add(cb); return () => { subs.delete(cb); }; }, () => store, () => store);
 }
 
@@ -60,7 +60,8 @@ export const age = (ms: number) => { const s = Math.max(0, Math.round(ms / 1000)
 export function hold(d: Showcase | null, now = Date.now()) {
   if (!d) return null;
   const b = d.lease?.balances ?? {};
-  const auth = d.lease?.authorizations?.[0];
+  const auths = d.lease?.authorizations ?? [];
+  const auth = auths.find(a => a.status === "created" || a.status === "partially_captured") ?? auths[0];
   const honor = d.honor_until ?? auth?.honor_until ?? null;
   const cap = cents(d.lease?.cap_minor ?? b.buyer_commitment);
   const available = cents(b.hold_available);
@@ -83,12 +84,12 @@ export const shortId = (id?: string | null) => (id && id.length > 8 ? `${id.slic
 export const REASON: Record<string, string> = {
   cap_reached: "Above what is available on the hold",
   exposure_limit: "Above the unsettled limit",
-  window_ended: "The PayPal guarantee window has ended",
-  lease_not_active: "The hold is not active",
+  window_ended: "The hold is not taking a new charge",
+  lease_not_active: "The hold or the tool is not active",
   refused_cap: "Above what is available on the hold",
   refused_exposure: "Above the unsettled limit",
-  refused_window: "The PayPal guarantee window has ended",
-  refused_inactive: "The hold is not active",
+  refused_window: "The hold is not taking a new charge",
+  refused_inactive: "The tool is not active",
 };
 export const callKind = (c: Call): "served" | "refused" | "other" => (c.status === "served" ? "served" : c.status.startsWith("refused") ? "refused" : "other");
 

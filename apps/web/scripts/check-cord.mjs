@@ -4,7 +4,34 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright";
-import { audit } from "./_audit.mjs";
+// Shared browser audits: horizontal overflow, text under 14 px, WCAG contrast of visible text.
+async function audit(page, name, { contrast = true } = {}) {
+  const issues = await page.evaluate(contrastOn => {
+    const out = [], root = document.documentElement;
+    if (root.scrollWidth > root.clientWidth) out.push(`overflow ${root.scrollWidth}>${root.clientWidth}`);
+    const parse = c => { const m = c.match(/rgba?\(([^)]+)\)/); if (!m) return null; const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p[3] ?? 1 }; };
+    const over = (top, under) => ({ r: top.r * top.a + under.r * (1 - top.a), g: top.g * top.a + under.g * (1 - top.a), b: top.b * top.a + under.b * (1 - top.a), a: 1 });
+    const lum = c => { const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; }; return .2126 * f(c.r) + .7152 * f(c.g) + .0722 * f(c.b); };
+    const bgOf = el => { const chain = []; for (let e = el; e; e = e.parentElement) { const st = getComputedStyle(e); let b = parse(st.backgroundColor); if (st.backgroundImage.includes('gradient')) { const stops = [...st.backgroundImage.matchAll(/rgba?\([^)]+\)/g)].map(m => parse(m[0])); b = stops.sort((x, y) => lum(y) - lum(x))[0]; } if (b && b.a > 0) { chain.push(b); if (b.a === 1) break; } } let c = { r: 255, g: 255, b: 255, a: 1 }; for (const b of chain.reverse()) c = over(b, c); return c; };
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n; (n = walker.nextNode());) {
+      const el = n.parentElement;
+      if (!n.textContent.trim() || !el || el.closest("svg,script,style,noscript,.sr,.skip") || !el.checkVisibility()) continue;
+      const box = el.getBoundingClientRect(); if (box.width <= 1 || box.height <= 1) continue;
+      const cs = getComputedStyle(el);
+      if (parseFloat(cs.fontSize) < 14) out.push(`small text "${n.textContent.trim().slice(0, 24)}"`);
+      if (contrastOn && !el.closest(":disabled")) {
+        let op = 1; for (let e = el; e; e = e.parentElement) op *= Number(getComputedStyle(e).opacity);
+        const fg = parse(cs.color); if (!fg) continue;
+        const bg = bgOf(el), f = over({ ...fg, a: fg.a * op }, bg);
+        const l1 = lum(f), l2 = lum(bg), ratio = (Math.max(l1, l2) + .05) / (Math.min(l1, l2) + .05);
+        if (ratio < 4.5) out.push(`contrast ${ratio.toFixed(2)} "${n.textContent.trim().slice(0, 24)}"`);
+      }
+    }
+    return out;
+  }, contrast);
+  return issues.map(i => `${name}: ${i}`);
+}
 
 const origin = process.env.CORD_URL || "http://localhost:3100";
 async function launch() {
@@ -15,7 +42,7 @@ async function launch() {
 const browser = await launch();
 let step = 0;
 const ok = label => console.log(`ok ${String(++step).padStart(2, "0")} ${label}`);
-const ROUTES = ["/", "/budget", "/activity", "/collect", "/escrow", "/developers", "/proof"];
+const ROUTES = ["/check", "/review", "/budget", "/activity", "/collect", "/escrow", "/developers", "/proof"];
 const soon = () => new Date(Date.now() + 3 * 86400e3).toISOString();
 
 const read = (over = {}) => ({
@@ -44,86 +71,40 @@ async function session(width, height, { scheme = "light", showcase = () => read(
 }
 
 try {
-  // 1. Home: first viewport, one primary button, live rows, no fixture word
+  // Live amount preview is opt-in; inspect its evidence, then check another amount.
   {
     const { context, page, errors } = await session(1440, 900);
-    const res = await page.goto(origin + "/", { waitUntil: "networkidle" });
-    assert.equal(res.status(), 200);
-    assert.match(await page.locator("h1").first().textContent(), /cannot overspend/);
-    assert.match(await page.locator(".sbx").textContent(), /PayPal sandbox\. No real money moves\./);
-    await page.locator(".live .call").first().waitFor();
-    const viewportText = await page.evaluate(() => { const out = []; const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); for (let n; (n = w.nextNode());) { const e = n.parentElement; if (!e || e.closest("script,style,.sr")) continue; const r = e.getBoundingClientRect(); if (r.top < innerHeight && r.bottom > 0 && e.checkVisibility()) out.push(n.textContent); } return out.join(" "); });
-    assert.doesNotMatch(viewportText, /fixture/i, "no 'fixture' in the first viewport");
-    assert.equal(await page.locator("main .btn.pri").count(), 1, "one primary button");
-    assert.match(await page.locator(".live").textContent(), /\$1\.94 of \$2\.00 available/);
-    ok("home: sandbox bar, headline, live rows, one primary button, no 'fixture' in the first viewport");
-
-    // 2. Real refusal in one click, then the judge path to PayPal evidence
-    await page.getByText("Refused before the model ran. Nothing charged.").waitFor(); // live check runs on load, no click needed
-    await page.getByRole("button", { name: /Try to overspend/ }).click();
-    await page.getByText("Refused before the model ran. Nothing charged.").waitFor();
-    assert.match(await page.locator(".callout").textContent(), /\$0\.01 over/);
-    ok("home: a live refusal shows on load and again on one click, with the amount over");
-    let clicks = 0;
-    await page.locator(".live .call").first().click(); clicks++;
-    await page.waitForURL(/\/activity\?call=/);
-    await page.locator(".sheet").waitFor();
-    assert.match(await page.locator(".sheet .src").textContent(), /Source:/);
-    await page.getByRole("link", { name: /PayPal evidence for this hold/ }).click(); clicks++;
-    await page.waitForURL(/\/proof/);
-    assert.match(await page.locator("#hold").textContent(), /0XU06317EW987240Y/);
-    assert.ok(clicks <= 3, `judge path took ${clicks} clicks`);
-    ok(`judge path: spend row, sheet with Source row, PayPal authorization id in ${clicks} clicks (the refusal is click 1 from home)`);
+    let previews = 0;
+    page.on("request", req => { if (req.url().includes("/api/showcase/try")) previews++; });
+    assert.equal((await page.goto(origin + "/check")).status(), 200);
+    await page.getByRole("button", { name: "See the decision for $1.95" }).waitFor();
+    assert.equal(previews, 0);
+    await page.getByRole("button", { name: "See the decision for $1.95" }).click();
+    await page.getByText(/Refused[\s\S]*\$0\.01 over/).waitFor();
+    assert.equal(previews, 1);
+    await page.getByRole("link", { name: "What this check proves" }).click();
+    await page.getByRole("heading", { name: "What an amount check proves" }).waitFor();
+    await page.goto(origin + "/budget");
+    await page.getByLabel("Amount in USD").fill("1.00");
+    await page.getByRole("button", { name: "See the decision for $1.00" }).click();
+    await page.getByText("Amount fits the current limits").waitFor();
     assert.deepEqual(errors, []);
+    ok("preview requires a click, links to evidence, and can check a different amount on Budget");
     await context.close();
   }
 
-  // 3. Budget: band and check an amount; ended state
-  {
-    const { context, page, errors } = await session(1440, 900);
-    await page.goto(origin + "/budget", { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: "Check an amount" }).click();
-    await page.locator("#amt").fill("1.95");
-    await page.getByRole("button", { name: "Check", exact: true }).click();
-    await page.getByText(/Refused before the model ran/).waitFor();
-    await page.locator("#amt").fill("1.00");
-    await page.getByRole("button", { name: "Check", exact: true }).click();
-    await page.getByText("This amount would be served.").waitFor();
-    ok("budget: $1.95 refused and $1.00 served by the limit check");
-    assert.deepEqual(errors, []);
-    await context.close();
-  }
-  {
-    const past = new Date(Date.now() - 86400e3).toISOString();
-    const { context, page } = await session(1440, 900, { showcase: () => { const r = read({ honor_until: past }); delete r.state; r.lease.authorizations[0].honor_until = past; return r; } });
-    await page.goto(origin + "/budget", { waitUntil: "networkidle" });
-    await page.getByText("Spending is closed.").first().waitFor();
-    assert.equal(await page.getByRole("button", { name: "Spending is closed" }).isDisabled(), true);
-    assert.equal(await page.locator(".notice").count(), 1, "one banner only");
-    await page.goto(origin + "/activity", { waitUntil: "networkidle" });
-    assert.equal(await page.locator(".tbl tbody tr").count(), 2, "record stays readable when ended");
-    ok("ended hold (past honor_until): spending closed, one banner, record readable");
-    await context.close();
-  }
-
-  // 4. Last good read survives a failed read; a first failed read shows a labelled recorded run
   {
     let n = 0;
     const { context, page } = await session(1440, 900, { showcase: () => (++n === 1 ? read() : null) });
-    await page.goto(origin + "/", { waitUntil: "networkidle" });
-    await page.locator(".live .call").first().waitFor();
+    await page.goto(origin + "/budget");
+    await page.getByRole("button", { name: /See the decision for \$1\.95/ }).waitFor();
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-    await page.getByText(/Last good read .* ago\. The gateway did not answer\./).waitFor();
-    assert.equal(await page.locator(".live .call").count() >= 2, true);
-    assert.doesNotMatch(await page.locator("body").textContent(), /Recorded run/);
-    ok("a failed later read keeps the last good rows and shows their age; no recorded fallback");
+    await page.getByText(/Last good read .* ago/).waitFor();
+    await page.getByText("Live spending data unavailable").waitFor();
+    assert.equal(await page.getByRole("button", { name: /See the decision for \$1\.95/ }).count(), 0);
+    await page.getByRole("button", { name: /See the decision for \$0\.07/ }).waitFor();
+    ok("failed refresh retains the last read and disables live controls; the replay is available");
     await context.close();
-    const s2 = await session(1440, 900, { showcase: () => null });
-    await s2.page.goto(origin + "/", { waitUntil: "networkidle" });
-    await s2.page.getByText(/Recorded run, 12 Nov\. Not live\./).waitFor();
-    assert.doesNotMatch(await s2.page.locator("body").textContent(), /fixture/i);
-    ok("first read failing: the recorded real run is labelled 'Not live'");
-    await s2.context.close();
   }
 
   // 5. Missing optional fields hide their elements
@@ -141,7 +122,7 @@ try {
   {
     const { context, page } = await session(1440, 900, { showcase: () => read({ calls: [] }) });
     await page.goto(origin + "/activity", { waitUntil: "networkidle" });
-    await page.getByText("Calls your agent pays for will appear here.").waitFor();
+    await page.getByText("No calls on this hold yet.").waitFor();
     await context.close();
     const s = await session(1440, 900, { showcase: () => read({ calls: [...read().calls, { id: "c3", tool_id: "summarise", price_minor: "3", status: "refused_cap", created_at: "2026-11-12T06:39:00Z" }] }) });
     await s.page.goto(origin + "/activity", { waitUntil: "networkidle" });

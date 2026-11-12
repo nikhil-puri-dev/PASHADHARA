@@ -1,0 +1,26 @@
+{
+  "measured": {
+    "capture_get": {
+      "http_status": 200,
+      "id": "0EE59349WY668751A",
+      "status": "COMPLETED",
+      "amount": { "currency_code": "USD", "value": "3.00" },
+      "paypal_fee": { "currency_code": "USD", "value": "0.59" }
+    },
+    "authorization_get": {
+      "http_status": 200,
+      "id": "1XY24188YF840512D",
+      "status": "VOIDED",
+      "amount": { "currency_code": "USD", "value": "10.00" }
+    },
+    "settlement_http": 200,
+    "close_http": 200
+  },
+  "computed": {
+    "journal_minor": { "CAPTURED_GROSS": 300, "PAYPAL_FEES": 59, "RELEASED": 700 },
+    "estimated_per_call_fee_total_minor": 156,
+    "allocations": 3,
+    "model_spend_minor": 0
+  },
+  "fixture": { "usage_source": "Three deterministic kernel tool commitments. No model or provider invoked." }
+}

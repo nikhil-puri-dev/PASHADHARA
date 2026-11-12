@@ -1,0 +1,15 @@
+{
+  "date": "12 Nov 2026 IST",
+  "hold": 6,
+  "blocked": {
+    "price": 7,
+    "remaining": 6,
+    "reason": "cap_reached"
+  },
+  "served": {
+    "price": 2,
+    "remaining": 4,
+    "evidence": "Two payments settled to the same supplier account; neither was reversed.",
+    "id": "PAY-A"
+  }
+}

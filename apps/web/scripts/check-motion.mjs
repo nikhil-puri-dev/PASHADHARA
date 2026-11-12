@@ -12,13 +12,13 @@ try {
     const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: reduced });
     const page = await context.newPage();
     await page.route("**/api/showcase", route => route.fulfill({ json: show }));
-    await page.goto(origin + "/", { waitUntil: "networkidle" });
-    await page.locator(".live .call").first().waitFor();
+    await page.goto(origin + "/check", { waitUntil: "networkidle" });
+    await page.locator(".boundary-tick").waitFor();
     if (reduced === "reduce") assert.equal(await page.evaluate(() => document.getAnimations().length), 0, `no animations under reduced motion at ${width}`);
-    await page.evaluate(() => { window.__row = document.querySelector(".live .call"); });
+    await page.evaluate(() => { window.__row = document.querySelector(".boundary-tick"); });
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await page.waitForTimeout(500);
-    assert.equal(await page.evaluate(() => window.__row === document.querySelector(".live .call") && window.__row.isConnected), true, "a refresh keeps the same row node");
+    assert.equal(await page.evaluate(() => window.__row === document.querySelector(".boundary-tick") && window.__row.isConnected), true, "a refresh keeps the same boundary mark");
     await context.close();
     console.log(`ok ${width}px ${reduced}: animations and refresh identity`);
   }

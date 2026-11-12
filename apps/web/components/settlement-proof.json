@@ -1,0 +1,12 @@
+{
+  "source": "evidence/settlement-sandbox-20261112.json, allowlisted amounts only (no ids)",
+  "measured": {
+    "capture": { "http_status": 200, "status": "COMPLETED", "amount": "3.00", "paypal_fee": "0.59" },
+    "authorization": { "http_status": 200, "status": "VOIDED", "amount": "10.00" }
+  },
+  "computed": {
+    "journal_minor": { "CAPTURED_GROSS": 300, "PAYPAL_FEES": 59, "RELEASED": 700 },
+    "allocations": 3
+  },
+  "fixture": "Three deterministic kernel tool commitments. No model or provider invoked."
+}

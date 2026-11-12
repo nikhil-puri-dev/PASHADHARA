@@ -4,6 +4,7 @@ import { useState } from "react";
 import { cents, feeFor, hold, usd, utc, useShowcase } from "../lib/showcase-store";
 import { recorded } from "../lib/recorded";
 import proof from "./proof-evidence.json";
+import boundary from "./boundary-record.json";
 import sandboxProof from "./finance-sandbox-proof.json";
 import { HoldNotice, Pill, Shell, Source, useNow } from "./site";
 
@@ -17,23 +18,27 @@ export function Collect() {
   const f = proof.fees;
   const caps = s.data?.captures ?? [];
   const spent = h?.spent ?? null;
-  const now = spent != null && spent > 0 ? { fee: feeFor(spent), net: spent - feeFor(spent) } : null;
+  const captureInFlight = caps.some(c => ["intent", "pending", "unknown"].includes(c.status ?? ""));
+  const now = !captureInFlight && spent != null && spent > 0 ? { fee: feeFor(spent), net: spent - feeFor(spent) } : null;
   return (
     <Shell route="collect">
       <div className="page">
-        <div className="pagehead"><h1>Collect from the hold</h1><p className="muted">Spending is metered against the hold. The money moves only when the owner collects it with a PayPal capture. Each capture costs PayPal&apos;s fee, so fewer, larger captures keep more of it.</p></div>
+        <div className="pagehead"><h1>Collect from the hold</h1><p className="muted">Spending is metered against the hold. The budget journal shows what was committed. PayPal capture is a separate step controlled by the owner.</p></div>
         <HoldNotice d={s.data} />
-        {s.data && spent != null && (
+        {spent == null && <p role="status">{s.loading ? "Reading settlement records…" : "Current settlement data unavailable. The comparison below is from a separate run."}</p>}
+        {spent != null && (
           <section className="panel">
-            <div className="cap"><span>This hold</span><span>{s.data.read_at ? `Read ${utc(s.data.read_at)}` : ""}</span></div>
+            <div className="cap"><span>This hold</span><span>{s.data?.read_at ? `Read ${utc(s.data.read_at)}` : ""}</span></div>
             <div className="body">
+              <h2>{s.failedAt ? "Last known settlement position" : captureInFlight ? "Verify the outstanding capture" : spent === 0 ? "Nothing to collect" : h?.state === "ended" ? "Review the closed hold" : "Review before collecting"}</h2>
               <dl className="kv" style={{ fontSize: "1rem" }}>
-                <dt>Spent, not collected</dt><dd>{usd(spent)}</dd>
-                {now && <><dt>PayPal fee if collected now</dt><dd>{usd(now.fee)}</dd><dt>{now.net < 0 ? "Fee is more than the amount, by" : "Left after the fee"}</dt><dd>{usd(Math.abs(now.net))}</dd></>}
-                <dt>Already collected</dt><dd>{usd(h?.collected ?? 0)}</dd>
+                <dt>Committed, awaiting capture · computed</dt><dd>{usd(spent)}</dd>
+                {now && <><dt>Fee estimate on unsettled balance · computed</dt><dd>{usd(now.fee)}</dd><dt>{now.net < 0 ? "Fee is more than the amount, by" : "Left after the fee"}</dt><dd>{usd(Math.abs(now.net))}</dd></>}
+                <dt>Captured · journal snapshot</dt><dd>{usd(h?.collected) || "Unavailable"}</dd>
               </dl>
-              {now && <div className="act">{now.net <= 0 ? `Collecting ${usd(spent)} now would cost ${usd(now.fee)} in fees, more than it brings in. Wait until more is spent.` : `Collecting now would keep ${usd(now.net)} of ${usd(spent)}. Waiting for a larger total keeps more.`}</div>}
-              <Source>Spent comes from the budget journal. The fee is computed with PayPal&apos;s measured rate of 0.49 plus 3.49% per capture. {caps.length ? "" : "No capture has been made on this hold yet."}</Source>
+              {captureInFlight && <div className="act">A capture is unresolved. The owner should read its PayPal state before retrying. The unsettled journal balance can include funds already allocated to that capture.</div>}
+              {now && <div className="act">{h?.state === "ended" || s.failedAt ? "The owner should verify PayPal authorization and capture state before taking action." : now.net <= 0 ? "The estimated fee exceeds the commitment. The owner should review the window before deciding when to collect." : "The owner can compare the estimated net with the time left on the authorization."} <Link href="/budget">Review the hold</Link></div>}
+              <Source>Commitments and captures are from the budget journal. The fee uses an observed sandbox rate, 0.49 plus 3.49% per capture. This page does not collect funds.</Source>
             </div>
           </section>
         )}
@@ -47,9 +52,9 @@ export function Collect() {
           <div className="cap"><span>Why batching matters</span><span>Recorded sandbox run, {day(f.date)}</span></div>
           <div className="body">
             <dl className="kv" style={{ fontSize: "1rem" }}>
-              <dt>{f.rows.length} separate $1.00 captures</dt><dd>fees {fixed(f.feeTotal)} ({Math.round((f.feeTotal / f.total) * 100)}%)</dd>
-              <dt>1 batched {fixed(f.total)} capture</dt><dd>fee {fixed(f.singleCaptureEstimate)} ({((f.singleCaptureEstimate / f.total) * 100).toFixed(1)}%)</dd>
-              <dt><strong>Saved by batching</strong></dt><dd><strong>{fixed(f.feeTotal - f.singleCaptureEstimate)}</strong></dd>
+              <dt>{f.rows.length} separate $1.00 captures · measured</dt><dd>fees {fixed(f.feeTotal)} ({Math.round((f.feeTotal / f.total) * 100)}%)</dd>
+              <dt>1 batched {fixed(f.total)} capture · computed estimate</dt><dd>fee {fixed(f.singleCaptureEstimate)} ({((f.singleCaptureEstimate / f.total) * 100).toFixed(1)}%)</dd>
+              <dt><strong>Estimated fee difference</strong></dt><dd><strong>{fixed(f.feeTotal - f.singleCaptureEstimate)}</strong></dd>
             </dl>
             <Source>The {fixed(f.feeTotal)} is measured: PayPal returned a fee on each of {f.rows.length} real sandbox captures. The {fixed(f.singleCaptureEstimate)} for one capture is computed from the same rate. <Link href="/proof#captures">See the {f.rows.length} captures</Link></Source>
           </div>
@@ -66,25 +71,25 @@ export function Escrow() {
   return (
     <Shell route="escrow">
       <div className="page">
-        <div className="pagehead"><h1>Escrow</h1><p className="muted">A seller does a job. Two AI judges score it. The database, not a model, works out how much is released.</p></div>
-        <div className="strip" role="group" aria-label="Job money">
-          <div><div className="l">Job price</div><div className="v">{fixed(job)}</div></div>
-          <div><div className="l">Held</div><div className="v">{fixed(job)}</div></div>
-          <div><div className="l">Released</div><div className="v">{fixed(job)}</div></div>
-          <div><div className="l">PayPal fee</div><div className="v">{fixed(e.capture.fee)}</div></div>
-          <div><div className="l">Seller paid</div><div className="v">{fixed(e.payout.amount)}</div></div>
+        <div className="pagehead"><span className="eyebrow">Escrow / Recorded PayPal sandbox · {day(e.date)} 2026</span><h1>{fixed(e.payout.amount)} reached the seller</h1><p className="muted">PayPal reported a successful payout after the database released the full job price.</p></div>
+        <div className="statline" role="group" aria-label="Job money">
+          <div><span className="eyebrow">Released · database decision</span><strong className="mono">{fixed(job)}</strong></div>
+          <div><span className="eyebrow">Captured · measured</span><strong className="mono">{fixed(e.capture.amount)}</strong></div>
+          <div><span className="eyebrow">Capture fee · measured</span><strong className="mono">{fixed(e.capture.fee)}</strong></div>
+          <div><span className="eyebrow">Seller payout · measured</span><strong className="mono">{fixed(e.payout.amount)}</strong></div>
         </div>
         <section className="panel">
           <div className="cap"><span><Pill kind="wait">Recorded {day(e.date)}, not live</Pill> A real PayPal sandbox run.</span><Pill kind="ok">Released</Pill></div>
           <div className="body">
             <div className="checks">
+              <div className="check"><span>Buyer set the rubric before delivery</span><span>100% of job price in the score band starting at 0, subject to both judges passing</span></div>
               {e.verdicts.map(v => <div className="check" key={v.provider}><span>{v.provider} judge</span><span className="mono">{v.verdict} · {v.score}</span></div>)}
-              <div className="check"><span>Limit check, using the buyer&apos;s rubric</span><span className="mono">release {fixed(job)}</span></div>
+              <div className="check"><span>Database decision, applying the buyer&apos;s rubric</span><span className="mono">release {fixed(job)}</span></div>
             </div>
             <div className="act ok">Captured {fixed(e.capture.amount)}, {e.capture.status}. Seller payout {e.payout.status}, {fixed(e.payout.amount)} after PayPal&apos;s {fixed(e.capture.fee)} fee.</div>
             <details>
               <summary>How judging works</summary>
-              <p>The buyer sets a rubric before the job: score thresholds that map to a share of the price. The judges only return a verdict and a score. The database maps those to an amount, so no model ever chooses or emits one. Both judges scored 100 here, so the full {fixed(job)} was released.</p>
+              <p>The buyer sets a rubric before the job: score thresholds that map to a share of the price. The judges only return a verdict and a score. The database maps those to an amount, so no model ever chooses or emits one. Both judges passed and scored 100 here, so the full {fixed(job)} was released.</p>
               <p className="muted small" style={{ marginTop: 8 }}>PayPal&apos;s separate payout processing fee of $0.25 appears in its response and is not in our journal.</p>
             </details>
             <Source>PayPal capture response ({e.capture.id}), PayPal payout GET (SUCCESS), OpenAI and Anthropic judge verdicts, and the database decision. Recorded {day(e.date)}. <Link href="/proof#escrow">PayPal evidence</Link></Source>
@@ -97,9 +102,10 @@ export function Escrow() {
 
 /* ---------------- Developers ---------------- */
 const MCP = "https://pashadhara.vercel.app/api/mcp";
+const FIRST_READ = `curl -fsS -H "Authorization: Bearer $BUDGET_TOKEN" https://pashadhara.vercel.app/api/v1/leases/$BUDGET_ID`;
 const CONFIGS: Record<string, { label: string; code: string; note: string }> = {
   code: { label: "Claude Code", code: `claude mcp add --transport http pashadhara \\\n  ${MCP} \\\n  --header "Authorization: Bearer $BUDGET_TOKEN"`, note: "Adds the gateway as a remote MCP server." },
-  json: { label: "Cursor and other clients", code: `{\n  "mcpServers": {\n    "pashadhara": {\n      "type": "http",\n      "url": "${MCP}",\n      "headers": { "Authorization": "Bearer $BUDGET_TOKEN" }\n    }\n  }\n}`, note: "Standard remote MCP settings. The shape is the same in any client that supports HTTP servers." },
+  json: { label: "Cursor and other clients", code: `{\n  "mcpServers": {\n    "pashadhara": {\n      "type": "http",\n      "url": "${MCP}",\n      "headers": { "Authorization": "Bearer $BUDGET_TOKEN" }\n    }\n  }\n}`, note: "Standard remote MCP settings. Check your client’s configuration format." },
   rest: { label: "Read the hold (REST)", code: `curl -H "Authorization: Bearer $BUDGET_TOKEN" \\\n  https://pashadhara.vercel.app/api/v1/leases/$BUDGET_ID`, note: "Returns hold_available, committed_unsettled and total_captured." },
 };
 
@@ -111,7 +117,7 @@ export function Developers() {
   const copy = async (key: string, text: string) => { try { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(null), 1500); } catch {} };
   const seen = new Map<string, number | null>();
   for (const c of s.data?.calls ?? []) seen.set(c.tool_id, cents(c.price_minor));
-  const tools = seen.size ? [...seen] : [["summarise", 3] as [string, number | null]];
+  const tools = seen.size ? [...seen] : [["summarise", null] as [string, number | null]];
   return (
     <Shell route="developers">
       <div className="page">
@@ -119,21 +125,24 @@ export function Developers() {
         <section className="panel">
           <div className="cap"><span>Set up</span><span>Sandbox</span></div>
           <div className="body">
-            <div className="tabs" role="tablist" aria-label="Client">
-              {Object.entries(CONFIGS).map(([k, v]) => <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{v.label}</button>)}
+            <div className="tabs" role="group" aria-label="Choose a client">
+              {Object.entries(CONFIGS).map(([k, v]) => <button key={k} aria-pressed={tab === k} onClick={() => setTab(k)}>{v.label}</button>)}
             </div>
+            <h2>Approve a sandbox hold</h2>
+            <p>A pilot operator creates the budget and issues its lease ID and scoped token. The buyer approves the PayPal sandbox hold. Public visitors can <Link href="/review">open the prepared run</Link> or use the shared demo on <Link href="/budget">Budget</Link>; they do not receive a private token here.</p>
+            <h2>{tab === "rest" ? "Read the authorized hold" : "Add the connection"}</h2>
             <pre tabIndex={0}><code>{cfg.code}</code></pre>
-            <p className="muted small">{cfg.note}</p>
-            <div className="row"><button className="btn" onClick={() => copy("cfg", cfg.code)}>{copied === "cfg" ? "Copied" : "Copy config"}</button></div>
-            <div><h3>Budget token</h3>
-              <div className="keyrow" style={{ marginTop: 8 }}><code>$BUDGET_TOKEN</code><button className="btn" onClick={() => copy("tok", "$BUDGET_TOKEN")}>{copied === "tok" ? "Copied" : "Copy"}</button></div>
-              <p className="muted small" style={{ marginTop: 8 }}>A budget token is issued when a buyer approves a hold. It is shown once and is not displayed on this site.</p></div>
+            <p className="muted small">{cfg.note} Set your credentials locally.</p>
+            <div className="row"><button className="btn" onClick={() => copy("cfg", cfg.code)}>{copied === "cfg" ? "Copied" : tab === "rest" ? "Copy request" : "Copy config"}</button></div>
+            {tab !== "rest" && <><h2>Make a first read</h2><pre tabIndex={0}><code>{FIRST_READ}</code></pre><div className="row"><button className="btn" onClick={() => copy("read", FIRST_READ)}>{copied === "read" ? "Copied" : "Copy first request"}</button></div></>}
+            <h2>Verify before spending</h2>
+            <p>Look for <code>state: active</code> and <code>guaranteed_now: true</code>. Read <code>balances.hold_available</code> in cents. Then list tools in your client to confirm the current price. After the first paid call, compare its receipt with the lease journal. If a response is lost, check the journal. Retry the same MCP invocation only with its original idempotency key and identical inputs.</p>
           </div>
         </section>
         <section className="panel">
-          <div className="cap"><span>Paid tools</span><span>{seen.size ? "From the live call records" : "Price is set in the database"}</span></div>
+          <div className="cap"><span>Paid tools</span><span>{seen.size ? "Historical prices from journal rows" : "Price is set in the database"}</span></div>
           <div className="scroll"><table className="tbl"><thead><tr><th>Tool</th><th className="amt">Price</th><th>Does</th></tr></thead><tbody>
-            {tools.map(([name, p]) => <tr key={name}><td className="mono">{name}</td><td className="amt">{p != null ? usd(p) : ""}</td><td>{name === "summarise" ? "Summarises text with Claude Haiku 5.5" : "Paid tool on the gateway"}</td></tr>)}
+            {tools.map(([name, p]) => <tr key={name}><td className="mono">{name}</td><td className="amt">{p != null ? usd(p) : ""}</td><td>{name === "summarise" ? "Summarises supplied text" : "Paid tool on the gateway"}</td></tr>)}
           </tbody></table></div>
         </section>
         <section className="panel" id="renew">
@@ -156,11 +165,29 @@ export function Proof() {
   return (
     <Shell route="proof">
       <div className="page">
-        <div className="pagehead"><h1>PayPal evidence</h1><p className="muted">What PayPal itself returned in sandbox calls, kept apart from what our code computed. Each block says which it is.</p></div>
+        <div className="pagehead"><span className="eyebrow">Sources and records</span><h1>Proof</h1><p className="muted">Match each decision to its source. PayPal responses, gateway calculations and fixture inputs are labeled separately.</p></div>
+        <section className="panel" id="boundary-run">
+          <div className="cap"><span>Invoice evidence run · {boundary.date}</span><Pill kind="n">Recorded sandbox</Pill></div>
+          <div className="body">
+            <h2>{usd(boundary.blocked.price)} request stopped at {usd(boundary.blocked.remaining)}</h2>
+            <dl className="kv">
+              <dt>Buyer authorization · measured</dt><dd>{usd(boundary.hold)} · PayPal GET, CREATED</dd>
+              <dt>Gateway result · computed</dt><dd>Cap reached · $0.00 committed</dd>
+              <dt>First allowed lookup · computed</dt><dd>{usd(boundary.served.price)} committed · {usd(boundary.served.remaining)} left</dd>
+            </dl>
+            <p>These are the records behind the prepared replay. Invoice data are fixtures. The blocked bundle returned no tool result. The agent later used three smaller lookups; its final answer was truncated.</p>
+            <details><summary>Open evidence</summary><p><a href="/finance-paypal-trace.jsonl">Gateway and agent trace (JSONL)</a> · <a href="/finance-paypal-proof.json">PayPal GET fields and journal snapshot (JSON)</a></p></details>
+            <Link href="/review">Back to the prepared run</Link>
+          </div>
+        </section>
+        <section className="panel" id="limit-check">
+          <div className="cap"><span>Live amount preview</span><Pill kind="n">Computed · no posting</Pill></div>
+          <div className="body"><h2>What an amount check proves</h2><p>The gateway checks the supplied amount against the journal at the time of the request. No tool runs, no journal entry is written, and PayPal is not contacted. The response is only shown on the check.</p><Link href="/">Back to the check</Link></div>
+        </section>
         <section className="panel" id="hold">
           <div className="cap"><span>The live demo hold</span><span>{s.data?.read_at ? `Read ${utc(s.data.read_at)}` : ""}</span></div>
           <div className="body">
-            {h ? (
+            {h?.cap != null ? (
               <dl className="kv">
                 {h.paypalId && <><dt>PayPal authorization</dt><dd>{h.paypalId}</dd></>}
                 {h.cap != null && <><dt>Authorized amount</dt><dd>{usd(h.cap)} USD</dd></>}
@@ -179,7 +206,7 @@ export function Proof() {
               <dt>Authorization</dt><dd>{sp.paypal_get.http_status === 200 ? `HTTP ${sp.paypal_get.http_status}, id matches the local row` : ""}</dd>
               <dt>Status</dt><dd>{sp.paypal_get.status}</dd>
               <dt>Amount</dt><dd>{sp.paypal_get.amount.value} {sp.paypal_get.amount.currency_code}</dd>
-              <dt>Refused over-budget call</dt><dd className="txt">{sp.refusal_probe.reason}; paid rows unchanged ({sp.refusal_probe.served_before.n} before, {sp.refusal_probe.served_after.n} after)</dd>
+              <dt>Gateway refusal · computed</dt><dd className="txt">{sp.refusal_probe.reason}; paid rows unchanged ({sp.refusal_probe.served_before.n} before, {sp.refusal_probe.served_after.n} after)</dd>
             </dl>
             <Source>Recorded 12 Nov in a PayPal sandbox run on a $0.16 hold. The tool charges are local journal commitments. Nothing was captured on that hold. Allowlisted fields only.</Source>
           </div>
