@@ -9,7 +9,7 @@ mkdirSync(shots, { recursive: true });
 const browser = existsSync(chromium.executablePath()) ? await chromium.launch() : await chromium.launch({ channel: 'msedge' });
 const id = '11111111-1111-4111-8111-111111111111';
 const base = {
-  mode: 'live', provenance: 'computed', remaining_calls: 2,
+  mode: 'live', provenance: 'computed', remaining_calls: 2, state: 'active', ended: false, read_at: '2026-11-12T12:00:00Z',
   lease: {
     id, state: 'active', cap_minor: 200, guaranteed_now: true,
     balances: { hold_available: 197, committed_unsettled: 3, total_captured: 0 },
@@ -21,8 +21,8 @@ const base = {
 };
 const cases = [
   { name: 'live', payload: base },
-  { name: 'recorded', payload: { mode: 'recorded' } },
-  { name: 'expired', payload: { ...base, lease: { ...base.lease, authorizations: [{ ...base.lease.authorizations[0], honor_until: '2026-11-11T12:00:00Z' }] } } },
+  { name: 'empty', payload: { mode: 'live', state: 'ended', ended: true, read_at: base.read_at } },
+  { name: 'expired', payload: { ...base, state: 'ended', ended: true, remaining_calls: 0, lease: { ...base.lease, authorizations: [{ ...base.lease.authorizations[0], honor_until: '2026-11-11T12:00:00Z' }] } } },
   { name: 'unreachable', status: 503 },
 ];
 
@@ -49,7 +49,7 @@ try {
       assert.equal(balance, scenario.name === 'live' ? '$1.97' : '$2.00');
       assert.match(band, scenario.name === 'live' ? /LIVE PAYPAL SANDBOX/ : /INTERACTIVE SIMULATION/);
       if (scenario.name !== 'live') assert.doesNotMatch(band, /LIVE PAYPAL SANDBOX/);
-      if (scenario.name === 'recorded' || scenario.name === 'unreachable') assert.match(band, /SAVED DEMO FIXTURE/);
+      assert.doesNotMatch(band, /SAVED DEMO FIXTURE/);
       if (scenario.name === 'unreachable') assert.match(band, /gateway did not answer/);
       if (scenario.name === 'expired') assert.match(band, /spending closed/);
       const over = page.locator('.dk-pre.primary');
@@ -66,8 +66,10 @@ try {
         await page.screenshot({ path: resolve(shots, `${scenario.name}-home-${width}.png`), fullPage: true });
       }
       await page.goto(origin + '/lease?showcase=1');
-      await page.locator('#lead h1').waitFor();
-      const lead = await page.locator('#lead').innerText();
+      const noJournal = scenario.name === 'empty' || scenario.name === 'unreachable';
+      const readout = noJournal ? page.locator('main [role="status"]') : page.locator('#lead');
+      await readout.filter({ hasText: noJournal ? /No showcase hold|gateway did not answer/ : /spend/ }).waitFor();
+      const lead = await readout.innerText();
       if (scenario.name === 'live') {
         assert.match(lead, /\$1\.97 is free to spend/);
         assert.equal(await page.locator('[data-act="showcase-run"]').count(), 1);
@@ -75,16 +77,19 @@ try {
         assert.equal(await page.locator('[data-act="showcase-run"]').count(), 0);
         assert.doesNotMatch(lead, /is free to spend/);
       }
-      if (scenario.name === 'recorded' || scenario.name === 'unreachable') assert.match(lead, /Saved demo fixture/);
+      if (noJournal) {
+        assert.doesNotMatch(lead, /\$|fixture/i);
+        assert.equal(await page.locator('#ledger').count(), 0);
+      }
       if (scenario.name === 'expired') assert.match(lead, /cannot spend/);
-      if (scenario.name !== 'live') {
+      if (scenario.name === 'expired') {
         assert.doesNotMatch(await page.locator('#ledger').innerText(), /Free to spend/);
         assert.doesNotMatch(await page.locator('#cordKey').innerText(), /free to spend/);
       }
       assert.equal(paidCalls, 0, 'no paid showcase call sent');
       assert.deepEqual(errors, []);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, 'lease has no horizontal overflow');
-      if (width === 390 && ['recorded', 'expired', 'unreachable'].includes(scenario.name)) {
+      if (width === 390 && scenario.name !== 'live') {
         await page.screenshot({ path: resolve(shots, `${scenario.name}-lease-${width}.png`), fullPage: true });
       }
       console.log(`PASS ${scenario.name} ${width}: home ${balance}; lease ${lead.split('\n')[0]}`);
@@ -143,11 +148,11 @@ try {
   await transitionPage.waitForFunction(() => document.querySelector('#lead h1')?.textContent?.includes('cannot spend'), { timeout: 12000 });
   assert.match(await transitionPage.locator('#leaseSource').innerText(), /SPENDING CLOSED/);
   assert.doesNotMatch(await transitionPage.locator('#ledger').innerText(), /Free to spend/);
-  currentSnapshot = { mode: 'recorded' };
-  await transitionPage.waitForFunction(() => document.querySelector('#lead h1')?.textContent?.includes('Saved demo fixture'), { timeout: 12000 });
-  assert.match(await transitionPage.locator('#leaseSource').innerText(), /SAVED DEMO FIXTURE/);
+  currentSnapshot = { ...base, state: 'expiring', lease: { ...base.lease, id: '22222222-2222-4222-8222-222222222222' } };
+  await transitionPage.locator('#leaseSource').filter({ hasText: 'HOLD ENDS SOON' }).waitFor({ timeout: 12000 });
+  assert.equal(await transitionPage.locator('[data-act="showcase-run"]').count(), 1);
   await transitionContext.close();
-  console.log('PASS live lease changes to closed and fixture without stale spendability');
+  console.log('PASS live lease changes to closed and switches to its replacement without a reload');
 
   if (process.env.RAW_SHOWCASE_ORIGIN) {
     const response = await fetch(new URL('/api/showcase', process.env.RAW_SHOWCASE_ORIGIN), { cache: 'no-store' });

@@ -1374,6 +1374,8 @@ document.addEventListener("pointerout",e=>{
   if(e.target.closest?.(".hit")&&!e.relatedTarget?.closest?.(".hit")&&$("#cord")){S.ui.sel=null;paintCord();paintLedger()}
 });
 
+/* The live port keeps this prototype's fixture amounts out of the showcase.
+   An empty or unavailable live read has no balance. A previous journal read keeps its own timestamp. */
 /* test hook, read only */
 window.__cord={S,sums,escrowCalc,feeC};
 mount();

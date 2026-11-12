@@ -1,147 +1,178 @@
-// Browser check for the cord interface (landing, sign up, log in, lease, escrow, settle, proof).
-// Usage: pnpm --filter @pashadhara/web check:cord   (a web server must already run; default http://localhost:3100)
-// Browser: Playwright Chromium if installed, else the installed Edge. Override with PLAYWRIGHT_EXECUTABLE.
+// Browser check for the product UI (home, budget, activity, collect, escrow, developers, proof).
+// Usage: pnpm --filter @pashadhara/web check:cord   (a web server must run; default http://localhost:3100, or CORD_URL)
+// Every /api/showcase answer is stubbed here, so the check does not depend on the live API and never makes a paid run.
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright";
+import { audit } from "./_audit.mjs";
 
 const origin = process.env.CORD_URL || "http://localhost:3100";
-
 async function launch() {
-  const explicit = process.env.PLAYWRIGHT_EXECUTABLE;
-  if (explicit) return chromium.launch({ executablePath: explicit });
+  if (process.env.PLAYWRIGHT_EXECUTABLE) return chromium.launch({ executablePath: process.env.PLAYWRIGHT_EXECUTABLE });
   if (existsSync(chromium.executablePath())) return chromium.launch();
-  console.log("Playwright Chromium missing, using installed Edge");
   return chromium.launch({ channel: "msedge" });
 }
-
 const browser = await launch();
 let step = 0;
 const ok = label => console.log(`ok ${String(++step).padStart(2, "0")} ${label}`);
+const ROUTES = ["/", "/budget", "/activity", "/collect", "/escrow", "/developers", "/proof"];
+const soon = () => new Date(Date.now() + 3 * 86400e3).toISOString();
 
-async function session(width, height) {
-  const context = await browser.newContext({ viewport: { width, height }, reducedMotion: "reduce" });
+const read = (over = {}) => ({
+  provenance: "computed", mode: "live", state: "active", read_at: new Date().toISOString(), honor_until: soon(), remaining_calls: 2,
+  lease: { id: "L1", state: "active", cap_minor: 200, guaranteed_now: true,
+    authorizations: [{ id: "A1", status: "created", honor_until: soon(), expires_at: "2026-12-10T16:08:35+00:00", paypal_authorization_id: "0XU06317EW987240Y", amount_minor: 200 }],
+    balances: { buyer_commitment: 200, hold_available: 194, committed_unsettled: 6, captured_gross: 0 } },
+  calls: [
+    { id: "c1", tool_id: "summarise", price_minor: "3", status: "served", created_at: "2026-11-11T20:12:34Z", ledger_group_id: "64800c8a-3109-44e1-b9f2-ace8406f495f", captured: false },
+    { id: "c2", tool_id: "summarise", price_minor: "3", status: "served", created_at: "2026-11-11T21:59:25Z", ledger_group_id: "884d6fe4-b687-47f3-a0f1-8e1fc4986759", captured: false }],
+  captures: [], ...over,
+});
+
+async function session(width, height, { scheme = "light", showcase = () => read() } = {}) {
+  const context = await browser.newContext({ viewport: { width, height }, reducedMotion: "reduce", colorScheme: scheme });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", e => errors.push(e.message));
   page.on("console", m => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
-  return { context, page, errors };
-}
-const h1 = page => page.locator("h1").first().textContent();
-const code = async (page, digits) => { await page.locator("#cboxes input").first().fill(digits); };
-
-async function audit(page, name) {
-  const issues = await page.evaluate(() => {
-    const out = [], root = document.documentElement;
-    if (root.scrollWidth > root.clientWidth) out.push(`overflow ${root.scrollWidth}>${root.clientWidth}`);
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    for (let n; (n = walker.nextNode());) {
-      const el = n.parentElement;
-      if (!n.textContent.trim() || !el || el.closest("svg,script,style,noscript,.sr") || !el.checkVisibility()) continue;
-      const box = el.getBoundingClientRect();
-      if (box.width <= 1 || box.height <= 1) continue;
-      if (parseFloat(getComputedStyle(el).fontSize) < 14) out.push(`small text "${n.textContent.trim().slice(0, 20)}"`);
-    }
-    return out;
+  await page.route("**/api/showcase", route => { const r = showcase(); if (r === null) route.fulfill({ status: 500, body: "x" }); else route.fulfill({ json: r }); });
+  await page.route("**/api/showcase/try*", route => {
+    const cents = Number(new URL(route.request().url()).searchParams.get("price_minor"));
+    route.fulfill({ status: cents > 194 ? 402 : 200, json: { provenance: "computed", price_minor: cents, remaining_minor: 194, reason: cents > 194 ? "cap_reached" : null } });
   });
-  assert.deepEqual(issues, [], `${name}: ${issues.join("; ")}`);
+  return { context, page, errors };
 }
 
 try {
-  // 1. Desktop: landing, sign up, rules, lease
+  // 1. Home: first viewport, one primary button, live rows, no fixture word
   {
     const { context, page, errors } = await session(1440, 900);
-    const res = await page.goto(`${origin}/`, { waitUntil: "networkidle" });
+    const res = await page.goto(origin + "/", { waitUntil: "networkidle" });
     assert.equal(res.status(), 200);
-    await page.locator(".dk .dk-mode").first().waitFor();
-    assert.match(await h1(page), /Give your agent authority\.\s*Keep the boundary\./);
-    assert.equal((await page.locator(".brand .word").first().textContent()).trim(), "Pashadhara", "plain wordmark");
-    assert.ok(await page.locator(".brand .mark").count(), "knot mark present");
-    ok("landing renders with the knot mark, the h1 and the decision desk");
+    assert.match(await page.locator("h1").first().textContent(), /cannot overspend/);
+    assert.match(await page.locator(".sbx").textContent(), /PayPal sandbox\. No real money moves\./);
+    await page.locator(".live .call").first().waitFor();
+    const viewportText = await page.evaluate(() => { const out = []; const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); for (let n; (n = w.nextNode());) { const e = n.parentElement; if (!e || e.closest("script,style,.sr")) continue; const r = e.getBoundingClientRect(); if (r.top < innerHeight && r.bottom > 0 && e.checkVisibility()) out.push(n.textContent); } return out.join(" "); });
+    assert.doesNotMatch(viewportText, /fixture/i, "no 'fixture' in the first viewport");
+    assert.equal(await page.locator("main .btn.pri").count(), 1, "one primary button");
+    assert.match(await page.locator(".live").textContent(), /\$1\.94 of \$2\.00 available/);
+    ok("home: sandbox bar, headline, live rows, one primary button, no 'fixture' in the first viewport");
 
-    await page.goto(`${origin}/nope`); assert.equal((await page.goto(`${origin}/nope`)).status(), 404); ok("unknown path is a real 404");
-    await page.goto(`${origin}/lease`, { waitUntil: "networkidle" });
-    await page.locator(".dk .dk-mode").first().waitFor(); assert.equal(new URL(page.url()).pathname, "/lease"); ok("signed out /lease opens the showcase desk and stays on /lease");
-
-    await page.goto(`${origin}/signup`, { waitUntil: "networkidle" });
-    assert.equal(await h1(page), "Try account setup");
-    await page.getByRole("button", { name: "Continue to sample code" }).click();
-    assert.equal(await page.locator(".errtxt").count(), 2, "both fields explain themselves"); ok("sign up validates inline");
-    await page.fill("#suName", "Nikhil"); await page.fill("#suEmail", "nikhil@example.com");
-    await page.getByRole("button", { name: "Continue to sample code" }).click();
-    assert.equal(await h1(page), "Enter the code");
-    await code(page, "000000"); await page.locator(".errtxt").waitFor();
-    assert.match(await page.locator(".errtxt").textContent(), /does not match/); ok("wrong code is refused with a recovery");
-    await code(page, "123456"); await page.getByRole("heading", { name: "Simulate PayPal connection" }).waitFor(); ok("code accepted");
-    await page.getByRole("button", { name: "Simulate connection" }).click();
-    await page.locator(".linked").waitFor(); await page.getByRole("button", { name: "Continue" }).click();
-    assert.equal(await h1(page), "Set sample rules");
-    await page.locator('[data-act="su-cap"][data-v="5000"]').click();
-    await page.locator('[data-act="su-per"][data-v="100"]').click();
-    await page.locator('[data-act="su-cat"][data-v="Documents"]').click();
-    await page.getByRole("button", { name: "Review and approve" }).click();
-    assert.equal(await h1(page), "Simulate approval");
-    await page.locator("#apGo").click(); await page.getByRole("heading", { name: "Preview agent settings" }).waitFor();
-    await page.getByRole("button", { name: "Simulate a test call" }).click(); await page.locator(".testres").waitFor();
-    await page.getByRole("button", { name: "Open sample lease" }).click();
-    await page.waitForURL(/\/lease$/); assert.match(await h1(page), /\$50\.00 is free to spend/); ok("six step sign up lands on a $50.00 lease");
-
-    for (let i = 0; i < 4; i++) await page.locator("#one").click();
-    const log = await page.locator(".log li").allTextContents();
-    assert.ok(log.some(l => /Documents is not on your allowed list/.test(l)), "category rule enforced");
-    assert.ok(log.some(l => /Committed/.test(l)), "an allowed call committed its price"); ok("gateway enforces the rules chosen at sign up");
-
-    await page.reload({ waitUntil: "networkidle" });
-    await page.locator("#lead h1").waitFor(); assert.equal(new URL(page.url()).pathname, "/lease"); ok("a reload keeps the session");
-    await page.getByRole("button", { name: "Sign out" }).click(); await page.waitForURL(`${origin}/`);
-    await page.goBack(); await page.waitForTimeout(400); assert.ok(["/", "/signup"].includes(new URL(page.url()).pathname), "Back after sign out stays out of the app"); ok("sign out then Back does not re-enter the app");
-    assert.deepEqual(errors, [], errors.join("\n")); await context.close();
+    // 2. Real refusal in one click, then the judge path to PayPal evidence
+    await page.getByText("Refused before the model ran. Nothing charged.").waitFor(); // live check runs on load, no click needed
+    await page.getByRole("button", { name: /Try to overspend/ }).click();
+    await page.getByText("Refused before the model ran. Nothing charged.").waitFor();
+    assert.match(await page.locator(".callout").textContent(), /\$0\.01 over/);
+    ok("home: a live refusal shows on load and again on one click, with the amount over");
+    let clicks = 0;
+    await page.locator(".live .call").first().click(); clicks++;
+    await page.waitForURL(/\/activity\?call=/);
+    await page.locator(".sheet").waitFor();
+    assert.match(await page.locator(".sheet .src").textContent(), /Source:/);
+    await page.getByRole("link", { name: /PayPal evidence for this hold/ }).click(); clicks++;
+    await page.waitForURL(/\/proof/);
+    assert.match(await page.locator("#hold").textContent(), /0XU06317EW987240Y/);
+    assert.ok(clicks <= 3, `judge path took ${clicks} clicks`);
+    ok(`judge path: spend row, sheet with Source row, PayPal authorization id in ${clicks} clicks (the refusal is click 1 from home)`);
+    assert.deepEqual(errors, []);
+    await context.close();
   }
-  // 2. Sample lease: spend, settle, escrow, void, proof
+
+  // 3. Budget: band and check an amount; ended state
   {
     const { context, page, errors } = await session(1440, 900);
-    await page.goto(`${origin}/`, { waitUntil: "networkidle" });
-    await page.locator('[data-act="sample"]').first().click();
-    await page.waitForURL(/\/lease$/); assert.match(await h1(page), /\$10\.65 is free/);
-    await page.getByRole("link", { name: "Settle $1.90" }).click(); await page.waitForURL(/\/settle$/);
-    assert.match(await h1(page), /\$1\.90 owed/);
-    await page.locator("#nr").fill("3");
-    assert.match(await h1(page), /3 captures for \$1\.53/); ok("settle recomputes fees");
-    await page.locator("#settleGo").click(); await page.getByRole("heading", { name: "Settled." }).waitFor();
-    await page.getByRole("link", { name: "Escrow" }).click(); await page.waitForURL(/\/escrow$/);
-    assert.equal(await page.locator(".payout").textContent(), "$2.50 held");
-    await page.locator('button[data-j="b"][data-v="2"]').click();
-    assert.equal(await page.locator(".payout").textContent(), "$1.50 to the seller");
-    await page.locator('button[data-j="b"][data-v="0"]').click();
-    assert.equal(await page.locator(".payout").textContent(), "$2.50 held"); ok("escrow rule: agree pays, a split holds");
-    await page.getByRole("link", { name: "Proof" }).click(); await page.waitForURL(/\/proof$/);
-    assert.equal(await page.locator(".proofrt tbody tr").count(), 12); ok("proof shows the 12 measured fee captures");
-    await page.getByRole("link", { name: "Lease", exact: true }).click();
-    await page.getByRole("button", { name: "Void lease" }).click();
-    const voidBtn = page.locator("#voidGo");
-    assert.equal(await voidBtn.getAttribute("aria-disabled"), "true");
-    await page.fill("#vin", "1.00"); assert.equal(await voidBtn.getAttribute("aria-disabled"), "true");
-    await page.fill("#vin", "10.65"); assert.equal(await voidBtn.getAttribute("aria-disabled"), "false");
-    await voidBtn.click(); await page.getByRole("heading", { name: "The sample hold is released." }).waitFor(); ok("void needs the exact held amount");
-    assert.deepEqual(errors, [], errors.join("\n")); await context.close();
+    await page.goto(origin + "/budget", { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "Check an amount" }).click();
+    await page.locator("#amt").fill("1.95");
+    await page.getByRole("button", { name: "Check", exact: true }).click();
+    await page.getByText(/Refused before the model ran/).waitFor();
+    await page.locator("#amt").fill("1.00");
+    await page.getByRole("button", { name: "Check", exact: true }).click();
+    await page.getByText("This amount would be served.").waitFor();
+    ok("budget: $1.95 refused and $1.00 served by the limit check");
+    assert.deepEqual(errors, []);
+    await context.close();
   }
-  // 3. Phone: every route, no overflow, no small text
   {
-    const { context, page, errors } = await session(390, 844);
-    await page.goto(`${origin}/`, { waitUntil: "networkidle" }); await audit(page, "home 390");
-    await page.goto(`${origin}/signup`, { waitUntil: "networkidle" }); await audit(page, "signup 390");
-    await page.goto(`${origin}/login`, { waitUntil: "networkidle" });
-    await page.fill("#suEmail", "ada@example.com"); await page.getByRole("button", { name: "Continue to sample code" }).click();
-    await audit(page, "code 390"); await code(page, "123456"); await page.waitForURL(/\/lease$/);
-    await page.goto(`${origin}/`, { waitUntil: "networkidle" }); await page.locator('[data-act="sample"]').first().click();
-    for (const p of ["lease", "escrow", "settle", "proof", "approve"]) {
-      await page.getByRole("link", { name: p === "approve" ? "New lease" : p[0].toUpperCase() + p.slice(1), exact: true }).first().click();
-      await page.waitForURL(new RegExp(`/${p}$`)); await audit(page, `${p} 390`);
-    }
-    ok("phone width: no overflow, no text under 14 px on any route");
-    assert.deepEqual(errors, [], errors.join("\n")); await context.close();
+    const past = new Date(Date.now() - 86400e3).toISOString();
+    const { context, page } = await session(1440, 900, { showcase: () => { const r = read({ honor_until: past }); delete r.state; r.lease.authorizations[0].honor_until = past; return r; } });
+    await page.goto(origin + "/budget", { waitUntil: "networkidle" });
+    await page.getByText("Spending is closed.").first().waitFor();
+    assert.equal(await page.getByRole("button", { name: "Spending is closed" }).isDisabled(), true);
+    assert.equal(await page.locator(".notice").count(), 1, "one banner only");
+    await page.goto(origin + "/activity", { waitUntil: "networkidle" });
+    assert.equal(await page.locator(".tbl tbody tr").count(), 2, "record stays readable when ended");
+    ok("ended hold (past honor_until): spending closed, one banner, record readable");
+    await context.close();
   }
-  console.log("PASS check:cord");
+
+  // 4. Last good read survives a failed read; a first failed read shows a labelled recorded run
+  {
+    let n = 0;
+    const { context, page } = await session(1440, 900, { showcase: () => (++n === 1 ? read() : null) });
+    await page.goto(origin + "/", { waitUntil: "networkidle" });
+    await page.locator(".live .call").first().waitFor();
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await page.getByText(/Last good read .* ago\. The gateway did not answer\./).waitFor();
+    assert.equal(await page.locator(".live .call").count() >= 2, true);
+    assert.doesNotMatch(await page.locator("body").textContent(), /Recorded run/);
+    ok("a failed later read keeps the last good rows and shows their age; no recorded fallback");
+    await context.close();
+    const s2 = await session(1440, 900, { showcase: () => null });
+    await s2.page.goto(origin + "/", { waitUntil: "networkidle" });
+    await s2.page.getByText(/Recorded run, 12 Nov\. Not live\./).waitFor();
+    assert.doesNotMatch(await s2.page.locator("body").textContent(), /fixture/i);
+    ok("first read failing: the recorded real run is labelled 'Not live'");
+    await s2.context.close();
+  }
+
+  // 5. Missing optional fields hide their elements
+  {
+    const { context, page, errors } = await session(1440, 900, { showcase: () => ({ read_at: new Date().toISOString() }) });
+    for (const r of ROUTES) { await page.goto(origin + r, { waitUntil: "networkidle" }); await page.locator("h1").first().waitFor(); }
+    await page.goto(origin + "/collect", { waitUntil: "networkidle" });
+    assert.equal(await page.locator("text=Captures on this hold").count(), 0);
+    assert.deepEqual(errors, []);
+    ok("a minimal /api/showcase answer renders every page without errors or invented numbers");
+    await context.close();
+  }
+
+  // 6. Activity: empty state, filter, refusal sheet
+  {
+    const { context, page } = await session(1440, 900, { showcase: () => read({ calls: [] }) });
+    await page.goto(origin + "/activity", { waitUntil: "networkidle" });
+    await page.getByText("Calls your agent pays for will appear here.").waitFor();
+    await context.close();
+    const s = await session(1440, 900, { showcase: () => read({ calls: [...read().calls, { id: "c3", tool_id: "summarise", price_minor: "3", status: "refused_cap", created_at: "2026-11-12T06:39:00Z" }] }) });
+    await s.page.goto(origin + "/activity", { waitUntil: "networkidle" });
+    await s.page.getByRole("button", { name: "Refused", exact: true }).click();
+    assert.equal(await s.page.locator(".tbl tbody tr").count(), 1);
+    await s.page.locator(".tbl tbody tr").first().click();
+    assert.match(await s.page.locator(".sheet").textContent(), /Refused before the model ran/);
+    ok("activity: empty state, Refused filter, refusal detail sheet");
+    await s.context.close();
+  }
+
+  // 7. Every page, both themes, desktop and phone: overflow, text size, contrast
+  for (const [w, h] of [[1440, 900], [390, 844], [375, 800]]) for (const scheme of ["light", "dark"]) {
+    const { context, page, errors } = await session(w, h, { scheme });
+    const issues = [];
+    for (const r of ROUTES) { await page.goto(origin + r + (r === "/activity" ? "?call=c1" : ""), { waitUntil: "networkidle" }); await page.waitForTimeout(150); issues.push(...await audit(page, `${r} ${w} ${scheme}`)); }
+    assert.deepEqual(issues, [], issues.join("\n"));
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
+  ok("all pages at 1440, 390 and 375, light and dark: no overflow, no text under 14 px, contrast at least 4.5:1, no console errors");
+
+  // 8. Routing
+  {
+    const { context, page } = await session(1440, 900);
+    assert.equal((await page.goto(origin + "/nope")).status(), 404);
+    await page.goto(origin + "/lease", { waitUntil: "networkidle" });
+    assert.match(page.url(), /\/budget$/);
+    await context.close();
+    ok("unknown paths are 404, /lease moves to /budget");
+  }
 } finally {
   await browser.close();
 }
