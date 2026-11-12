@@ -11,7 +11,7 @@ export function findingProblems(f: Finding, purchased: readonly string[]): strin
   if (!f || !pairIds.includes(f.pair)) return [`unknown pair ${f?.pair}`];
   if (!CLASSES.includes(f.classification)) out.push('invalid classification');
   if (!Array.isArray(f.citations) || f.citations.some(c => typeof c !== 'string')) return [...out, 'citations must be strings'];
-  if (typeof f.rationale !== 'string') return [...out, 'rationale must be a string'];
+  if (typeof f.rationale !== 'string' || !f.rationale.trim()) return [...out, 'rationale must be a non-empty string'];
   if (f.rationale.length > 400) out.push(`pair ${f.pair}: rationale is longer than 400 characters`);
   const allowed = [`INV-${f.pair}1`, `INV-${f.pair}2`, `PAY-${f.pair}`];
   for (const id of [`INV-${f.pair}1`, `INV-${f.pair}2`]) if (!f.citations.includes(id)) out.push(`pair ${f.pair}: citations must include ${id}`);

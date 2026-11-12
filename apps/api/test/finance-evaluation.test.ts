@@ -27,6 +27,7 @@ test('citation validation flags fabricated, cross-pair, unpurchased and omitted 
   assert.equal(findingProblems(f(['INV-A1', 'INV-A2', 'PAY-A'], 'PAY-A.'), []).length >= 1, true);
   assert.deepEqual(findingProblems(f(['INV-A1', 'INV-A2', 'PAY-A'], 'PAY-A.'), ['A']), []);
   assert.ok(artifactProblems([f(['INV-A1', 'INV-A2'], 'ok')], []).some(p => p.includes('missing finding for pair B')));
+  assert.deepEqual(findingProblems({ ...f(['INV-A1', 'INV-A2'], ' '), classification: 'abstain' }, []), ['rationale must be a non-empty string']);
   assert.deepEqual(artifactProblems(abstainAll(['A']), ['A']), []);
 });
 

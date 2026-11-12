@@ -18,7 +18,7 @@ let server: ReturnType<typeof serve> | undefined;
 try {
   if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY is required');
   await seedFinance(db, 'fixture-finance@example.test');
-  const configuredCap = Number(process.env.FIXTURE_BUDGET_CENTS ?? '6');
+  const configuredCap = Number(process.env.FIXTURE_BUDGET_CENTS ?? '20');
   if (!Number.isSafeInteger(configuredCap) || configuredCap < 1 || configuredCap > 100) throw new Error('FIXTURE_BUDGET_CENTS must be an integer from 1 to 100');
   const cap = BigInt(configuredCap);
   const lease = (await kernel.createLease(db, { buyer_ref: 'fixture-finance-investigation', cap_minor: cap, unsettled_limit_minor: cap })).id;
@@ -37,7 +37,7 @@ try {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('No local gateway address');
   console.log(JSON.stringify({ event: 'fixture_setup', provenance: 'fixture', lease_id: lease, cap_cents: configuredCap, note: 'Synthetic authorization and payment evidence, not PayPal responses.' }));
-  const child = spawn(process.execPath, ['--import', 'tsx', new URL('./finance-agent.ts', import.meta.url).pathname.replace(/^\/(?:([A-Za-z]:))/, '$1')], { stdio: 'inherit', env: { ...process.env, MCP_URL: `http://127.0.0.1:${address.port}/mcp`, INVESTIGATION_BUDGET_CENTS: String(configuredCap), LEASE_TOKEN: issueToken(secret, 'lease', lease) } });
+  const child = spawn(process.execPath, ['--import', 'tsx', fileURLToPath(new URL('./finance-agent.ts', import.meta.url))], { stdio: 'inherit', env: { ...process.env, MCP_URL: `http://127.0.0.1:${address.port}/mcp`, INVESTIGATION_BUDGET_CENTS: String(configuredCap), LEASE_TOKEN: issueToken(secret, 'lease', lease) } });
   const code = await new Promise<number>((resolve, reject) => { child.once('error', reject); child.once('exit', value => resolve(value ?? 1)); });
   process.exitCode = code;
 } finally { server?.close(); await db.end(); }

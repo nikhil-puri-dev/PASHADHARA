@@ -37,6 +37,6 @@ export const paymentEvidence: Record<string, ReturnType<typeof ev>> = Object.fro
 export const pairIds = invoices.map(row => row.pair);
 
 export const financeTools: readonly ToolDef[] = [
-  { name: 'finance_payment_lookup', description: 'Fixture payment evidence for one invoice pair. Pass its pair ID (A, B, C, or D) as text.', admit: () => ({ cancel() {}, async run(text) { const row = paymentEvidence[text.trim().toUpperCase()]; if (!row) throw new Error('Unknown fixture pair'); return { provenance: 'fixture', evidence: row }; } }) },
+  { name: 'finance_payment_lookup', description: 'Synthetic payment evidence for one invoice pair. Pass its pair ID (A through L) as text.', admit: () => ({ cancel() {}, async run(text) { const row = paymentEvidence[text.trim().toUpperCase()]; if (!row) throw new Error('Unknown fixture pair'); return { provenance: 'fixture', evidence: row }; } }) },
   { name: 'finance_payment_bundle', description: 'Fixture payment evidence for every invoice pair in one purchase. Pass all as text.', admit: () => ({ cancel() {}, async run(text) { if (text.trim().toLowerCase() !== 'all') throw new Error('Expected all'); return { provenance: 'fixture', evidence: Object.values(paymentEvidence) }; } }) },
 ];
