@@ -47,6 +47,7 @@ export function createAuth(db: Database, secret: string, adminKey: string) {
   const leaseIsOpen = async (id: string) => db.transaction(null, async tx => Boolean((await tx.query(`
     select 1 from public.leases l
     where l.id=$1 and l.state in ('pending_approval','active')
+      and not exists (select 1 from public.paypal_calls p where p.lease_id=l.id and p.op='void' and p.state='succeeded')
       and clock_timestamp() < l.created_at + $2::integer * interval '1 day'
       and clock_timestamp() < coalesce(
         (select max(a.expires_at) from public.authorizations a where a.lease_id=l.id), 'infinity'::timestamptz

@@ -13,7 +13,7 @@ function safeInteger(value: string): number {
 export async function readLeases(tx: Tx, lease: string | null) {
   const rows = await tx.query<{
     id: string; state: string; cap_minor: string; unsettled_limit_minor: string;
-    guaranteed_now: boolean; authorizations: Record<string, string>[]; balances: Record<string, string>;
+    guaranteed_now: boolean; authorizations: { amount_minor: string; status: string; honor_until: string }[]; balances: Record<string, string>;
   }>(`select l.id,l.state,l.cap_minor,l.unsettled_limit_minor,
     exists (select 1 from public.authorizations a where a.lease_id=l.id
       and a.status in ('created','partially_captured') and a.honor_until>now()) as guaranteed_now,

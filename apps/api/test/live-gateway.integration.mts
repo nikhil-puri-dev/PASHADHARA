@@ -9,6 +9,10 @@ import { summariseTool } from '../src/summarise.ts';
 import { showcaseRoutes } from '../src/showcase.ts';
 import { escrowFlow } from '../src/escrow.ts';
 import { seedSummarise } from '../scripts/live-seed.ts';
+import { settlementFlow } from '../src/settlement.ts';
+import { readHandlers } from '../src/read-handlers.ts';
+import { createAuth, issueToken } from '../src/auth.ts';
+import type { RouteInput } from '../src/routes.ts';
 
 // Throwaway Postgres 15434 only. The model provider is a counting stub: no network, no spend.
 const database = process.env.GATEWAY_TEST_DATABASE ?? 'postgres';
@@ -17,8 +21,8 @@ const db = new kernel.Database(`postgres://kernel_login@127.0.0.1:15434/${databa
 const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-03-26' };
 const key = (text: string) => `${randomUUID()}:${createHash('sha256').update('summarise').update('\0').update(text).digest('hex')}`;
 
-async function activeLease(cap: bigint) {
-  const lease = (await kernel.createLease(db, { buyer_ref: 'live-gateway-test', cap_minor: cap, unsettled_limit_minor: cap })).id;
+async function activeLease(cap: bigint, limit = cap) {
+  const lease = (await kernel.createLease(db, { buyer_ref: 'live-gateway-test', cap_minor: cap, unsettled_limit_minor: limit })).id;
   const order = await kernel.beginPayPalCall(db, lease, 'create_order');
   await kernel.markCallSent(db, lease, order.call_id);
   const orderId = await kernel.recordOrder(db, lease, order.call_id, { http_status: 201, body: { id: randomUUID() } });
@@ -51,6 +55,124 @@ const rows = (lease: string) => db.transaction(null, tx => tx.query<{ status: st
   'select status,price_minor,ledger_group_id from public.tool_calls where lease_id=$1 order by id', [lease])).then(r => r.rows);
 
 test('seed the tool', async () => { await seedSummarise(db, 'seller-fixture@example.test'); });
+
+test('showcase reads the published lease anew and keeps an ended journal free of fixture numbers', async () => {
+  const app = showcaseRoutes(db, null, 'fixture-secret', gateway('').tool, 100);
+  const read = async () => {
+    const response = await app.request('http://localhost/showcase');
+    assert.equal(response.status, 200);
+    return response.json() as Promise<{ lease?: { id: string }; state: string; ended: boolean; read_at: string; provenance: string }>;
+  };
+  const empty = await read();
+  assert.equal(empty.state, 'ended');
+  assert.equal(empty.lease, undefined);
+  assert.ok(Date.parse(empty.read_at));
+  const old = await activeLease(100n);
+  // Fixture only: database owner has backdated the honor clock for this test through the helper below.
+  const { default: pg } = await import('pg');
+  const owner = new pg.Client({ connectionString: `postgres://postgres@127.0.0.1:15434/${database}` });
+  await owner.connect();
+  try {
+    await owner.query('begin');
+    await owner.query('alter table public.authorizations disable trigger authorizations_immutable');
+    await owner.query("update public.authorizations set created_at=now()-interval '4 days',honor_until=now()-interval '1 day' where lease_id=$1", [old]);
+    await owner.query('alter table public.authorizations enable trigger authorizations_immutable');
+    await owner.query('commit');
+  } finally { await owner.end(); }
+  const register = (lease: string, published: boolean) => db.transaction(null, tx => tx.query(
+    'insert into public.showcase_leases(lease_id,published_at) values ($1,case when $2 then now() end)', [lease, published],
+  ));
+  await register(old, true);
+  const ended = await read();
+  assert.equal(ended.state, 'ended');
+  assert.equal(ended.lease?.id, old);
+  assert.equal(ended.provenance, 'computed');
+  const replacement = await activeLease(100n);
+  await db.transaction(replacement, async tx => {
+    await tx.query(`insert into public.tools(id,seller_id,name,price_minor)
+      select 'rotation-refusal-fixture',seller_id,'Refusal fixture',101 from public.tools where id='summarise'
+      on conflict (id) do nothing`);
+  });
+  const refusal = await kernel.commitUsage(db, replacement, { kind: 'tool', tool_id: 'rotation-refusal-fixture', idempotency_key: randomUUID() });
+  assert.equal(refusal.status, 'refused_cap');
+  await register(replacement, false);
+  assert.equal((await read()).lease?.id, old);
+  await db.transaction(null, tx => tx.query('update public.showcase_leases set published_at=now() where lease_id=$1', [replacement]));
+  const active = await read();
+  assert.equal(active.lease?.id, replacement);
+  assert.equal(active.state, 'active');
+  assert.equal(active.ended, false);
+  const publicRows = await (await app.request('http://localhost/showcase')).json() as { calls: Record<string, unknown>[] };
+  assert.deepEqual(publicRows.calls.map(call => [call.id, call.status, call.ledger_group_id]), [[refusal.id, 'refused_cap', null]]);
+  assert.ok(!Object.hasOwn(publicRows.calls[0]!, 'idempotency_key'));
+});
+
+test('lost capture response and concurrent void preserve exactly one batch and one release', async () => {
+  const lease = await activeLease(1000n, 350n);
+  const secret = 'fixture-only-lease-signing-secret';
+  const request = new Request('http://localhost', { headers: { authorization: `Bearer ${issueToken(secret, 'lease', lease)}` } });
+  const input: RouteInput = { params: { leaseId: lease }, request, principal: null, body: undefined, query: {} };
+  const auth = (await db.transaction(null, tx => tx.query<{ paypal_authorization_id: string }>(
+    'select paypal_authorization_id from public.authorizations where lease_id=$1', [lease],
+  ))).rows[0]!.paypal_authorization_id;
+  const order = (await db.transaction(null, tx => tx.query<{ paypal_order_id: string }>(
+    'select paypal_order_id from public.leases where id=$1', [lease],
+  ))).rows[0]!.paypal_order_id;
+  const seller = await seedSummarise(db, 'seller-fixture@example.test');
+  const tool = randomUUID();
+  await db.transaction(null, tx => tx.query("insert into public.tools(id,seller_id,name,price_minor) values ($1,$2,'Fixture',100)", [tool, seller]));
+  const use = () => kernel.commitUsage(db, lease, { kind: 'tool', tool_id: tool, idempotency_key: randomUUID() });
+  for (let i = 0; i < 2; i++) assert.equal((await use()).status, 'served');
+  let capturePosts = 0, voidPosts = 0, voided = false, failVoidRead = true;
+  let capture: Record<string, unknown>;
+  let reachedVoid!: () => void, finishVoid!: () => void;
+  const atVoid = new Promise<void>(resolve => { reachedVoid = resolve; });
+  const allowVoid = new Promise<void>(resolve => { finishVoid = resolve; });
+  const money = (value: string) => ({ currency_code: 'USD', value });
+  const flow = settlementFlow(db, {
+    async capture(_auth, amount, invoice_id) {
+      capturePosts++;
+      capture = { id: randomUUID(), invoice_id, status: 'COMPLETED', amount, seller_receivable_breakdown: { paypal_fee: money('0.59') } };
+      throw new Error('Fixture response lost after capture');
+    },
+    async getOrder() { return { status: 200, body: { id: order, purchase_units: [{ payments: { captures: [capture] } }] } }; },
+    async getCapture() { return { status: 200, body: capture }; },
+    async void() { voidPosts++; reachedVoid(); await allowVoid; voided = true; throw new Error('Fixture response lost after void'); },
+    async getAuthorization() {
+      if (voided && failVoidRead) { failVoidRead = false; throw new Error('Fixture void GET failed'); }
+      return { status: 200, body: { id: auth, status: voided ? 'VOIDED' : 'PARTIALLY_CAPTURED', amount: money('10.00') } };
+    },
+    async reauthorize() { throw new Error('Unexpected reauthorization'); },
+  }, readHandlers(db).getLease!);
+  assert.deepEqual((await flow.sweep()).find(r => r.leaseId === lease),
+    { leaseId: lease, planned: false, dispatched: false });
+  assert.equal((await use()).status, 'served');
+  assert.deepEqual((await flow.sweep()).find(r => r.leaseId === lease),
+    { leaseId: lease, planned: true, dispatched: true });
+  assert.equal((await flow.handlers.settleLease(input)).status, 409);
+  assert.equal(capturePosts, 1);
+  const proof = await flow.handlers.reconcileLease(input);
+  assert.equal(proof.status, 200);
+  assert.equal((proof.body as { all_match: boolean }).all_match, true);
+  const close = flow.handlers.closeLease(input);
+  await atVoid;
+  try {
+    assert.equal((await use()).status, 'refused_window');
+    assert.equal((await flow.handlers.closeLease(input)).status, 409);
+  } finally { finishVoid(); }
+  assert.equal((await close).status, 409);
+  assert.equal((await flow.handlers.closeLease(input)).status, 409);
+  assert.equal((await flow.handlers.reconcileLease(input)).status, 200);
+  assert.equal(voidPosts, 1);
+  assert.equal((await db.transaction(null, tx => tx.query('select state from public.leases where id=$1', [lease]))).rows[0]?.state, 'closed');
+  assert.equal(await createAuth(db, secret, '').resolveMcpLease(request), null);
+  const { rows: journal } = await db.transaction(null, tx => tx.query(
+    "select ref_type,account,amount_minor from public.ledger_entries where lease_id=$1 and ref_type in ('capture','void') and direction='D' order by account", [lease],
+  ));
+  assert.deepEqual(journal.map(row => [row.ref_type, row.account, row.amount_minor]), [
+    ['capture', 'CAPTURED_GROSS', '300'], ['capture', 'PAYPAL_FEES', '59'], ['void', 'RELEASED', '700'],
+  ]);
+});
 
 after(() => db.end());
 
@@ -96,6 +218,9 @@ test('call after the authorization is voided is refused before the provider', as
   const voidCall = await kernel.beginVoid(db, lease);
   await kernel.markCallSent(db, lease, voidCall.call_id);
   await kernel.completeVoid(db, lease, voidCall.call_id, { http_status: 204, body: {} });
+  const secret = 'fixture-only-lease-signing-secret';
+  const request = new Request('http://localhost', { headers: { authorization: `Bearer ${issueToken(secret, 'lease', lease)}` } });
+  assert.equal(await createAuth(db, secret, '').authenticate([{ leaseToken: [] }], request, 'getLease', { leaseId: lease }, undefined), null);
   const result = await g.call('after void');
   assert.equal(result.isError, true);
   assert.equal(result.structuredContent.reason, 'window_ended');

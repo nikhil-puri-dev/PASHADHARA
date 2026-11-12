@@ -13,6 +13,8 @@ import { summariseTool } from './summarise.ts';
 import { financeTools } from './finance-fixtures.ts';
 import { escrowFlow } from './escrow.ts';
 import { showcaseRoutes } from './showcase.ts';
+import { settlementFlow } from './settlement.ts';
+import { timingSafeEqual, createHash } from 'node:crypto';
 import { escrowJudges } from './judges.ts';
 import { API_BASE_PATH, type Contract } from './routes.ts';
 import { webhookStore } from './webhook-store.ts';
@@ -29,12 +31,11 @@ const loadContract = () => contract ??= parse(
 ) as Contract;
 
 app.get('/health', c => c.json({ status: 'ok' }));
-app.get('/openapi.json', c => {
-  c.set('operation', 'openapi');
-  return c.json({ ...loadContract(), servers: [{ url: API_BASE_PATH }] });
-});
-app.get('/showcase', (c, next) => {
-  if (!process.env.SHOWCASE_LEASE_ID) return c.json({ mode: 'recorded' }, 200, { 'Cache-Control': 'no-store' });
+app.get('/openapi.json', (c, next) => {
+  if (!process.env.DATABASE_URL || [...(process.env.LEASE_TOKEN_SECRET ?? '')].length < 32
+    || [...(process.env.ADMIN_KEY ?? '')].length < 32) {
+    return c.json({ ...loadContract(), paths: {}, servers: [{ url: API_BASE_PATH }] });
+  }
   return next();
 });
 app.all('*', async c => {
@@ -61,13 +62,16 @@ app.all('*', async c => {
     }) : undefined;
     const approval = paypal && baseUrl ? approvalFlow(db, paypal, baseUrl, secret, readHandlers(db).getLease!) : undefined;
     const tool = summariseTool({ apiKey: aiEnabled ? anthropic : undefined, limitUsd: Number(spendLimit) });
+    const settlement = paypal && settlementFlow(db, paypal, readHandlers(db).getLease!);
     api = createApp({
       contract: loadContract(), db, ...createAuth(db, secret, admin),
+      publishImplementedContract: true,
       mcpAllowedOrigins: baseUrl ? [new URL(callbackBase(baseUrl)).origin] : [],
       meter: kernelMeter(db, undefined, resultStore(db)),
       tools: [tool, ...financeTools],
       webhook: paypal && webhookId ? { webhookId, paypal, kernel: webhookStore(db) } : undefined,
       handlers: {
+        ...settlement?.handlers,
         ...(escrow && { recoverPayouts: async input => {
           escrow.sweep(input.params.leaseId!);
           return { status: 202, body: { status: 'queued' } };
@@ -85,8 +89,16 @@ app.all('*', async c => {
         },
       },
     });
-    if (process.env.SHOWCASE_LEASE_ID) api.route('/', showcaseRoutes(
-      db, process.env.SHOWCASE_LEASE_ID, secret, tool, Number.isSafeInteger(budget) && budget > 0 ? Math.floor(budget / 5) : 0,
+    if (settlement) api.post('/internal/settlement/sweep', async c => {
+      const digest = (value: string) => createHash('sha256').update(value).digest();
+      if (!timingSafeEqual(digest(c.req.header('Authorization') ?? ''), digest(`Bearer ${admin}`))) {
+        return c.json({ error: 'Unauthorized' }, 401);
+      }
+      const results = await settlement.sweep();
+      return c.json({ provenance: 'computed', results });
+    });
+    api.route('/', showcaseRoutes(
+      db, null, secret, tool, Number.isSafeInteger(budget) && budget > 0 ? Math.floor(budget / 5) : 0,
     ));
     if (approval) api.route('/', approval.callbacks);
     else api.get('/paypal/:action/:leaseId', c => c.json({ status: 'unavailable' }, 503));

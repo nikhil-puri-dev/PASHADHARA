@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { CAP, EXPOSURE, PER_REQUEST, decide, initial, money, quotes, remaining, total, type Commitment, type Decision, type Delegation } from "../lib/delegation";
+import "../app/cord.css";
+import "../app/tide.css";
 import "../app/delegation.css";
 
 export function DelegationApp() {

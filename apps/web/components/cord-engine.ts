@@ -1,5 +1,4 @@
 // @ts-nocheck
-import recordedShowcase from "./showcase-recorded.json";
 import proofEvidence from "./proof-evidence.json";
 /* Pashadhara cord engine. Ported from design/cord/index.html. It drives the whole interface
    imperatively into #hdr, #main and #ftr, exactly as the approved prototype does. */
@@ -458,8 +457,7 @@ function liveTake(){
    stopRun(); S.user={name:"Live lease",live:true}; S.privateBalances=null; S.liveEnded=false; S.liveReady=false; S.liveSig=""; S.liveErr="";
   S.status="active"; S.calls=[]; S.log=[]; S.refused=0; S.settles=[]; S.voided=null; S.ui.sel=null;
 }
-/* Never a blank page. If the gateway cannot be reached, the dated recording is shown and says so.
-   If the hold's honor period has ended, the live journal is still shown, marked ended, and spending is off. */
+/* The live view has no balance without a database read. */
 async function fetchShowcase(){
   let data;
   try{
@@ -470,14 +468,15 @@ async function fetchShowcase(){
       data=await response.json();
     }finally{clearTimeout(cut)}
   }catch(e){
-    return {...recordedShowcase,unreachable:true};
+    return {mode:"unavailable",unreachable:true};
   }
-   if(data.mode==="recorded")return {...recordedShowcase,unreachable:false};
+  if(data.mode!=="live"||!Number.isFinite(Date.parse(data.read_at))||!["active","expiring","ended"].includes(data.state))
+    return {mode:"unavailable",unreachable:true};
+  if(data.ended&&!data.lease)return data;
   const b=data.lease?.balances;
   if(data.mode!=="live"||!b||!Array.isArray(data.journal?.entries)||!Array.isArray(data.lease.authorizations)||!Array.isArray(data.calls)
-    ||![data.lease.cap_minor,b.hold_available,b.committed_unsettled,b.total_captured].every(v=>Number.isSafeInteger(v)&&v>=0))return {...recordedShowcase,unreachable:true};
-  const honor=data.lease?.authorizations?.[0]?.honor_until;
-  return {...data,read_at:Date.now(),ended:data.lease.state!=="active"||data.lease.guaranteed_now===false||!honor||!Number.isFinite(Date.parse(honor))||Date.parse(honor)<=Date.now()};
+    ||![data.lease.cap_minor,b.hold_available,b.committed_unsettled,b.total_captured].every(v=>Number.isSafeInteger(v)&&v>=0))return {mode:"unavailable",unreachable:true};
+  return data;
 }
 async function loadShowcase(){const d=await fetchShowcase();DK.data=d;return d}
 function enterShowcase(){
@@ -496,6 +495,11 @@ async function liveLoad(){
     if(showcase){
       const data=await loadShowcase();
       if(!S.user?.showcase)return false;
+      if(!data.lease){
+        S.liveErr=data.ended?`No showcase hold is published. Journal checked ${whenUTC(data.read_at)}.`
+          :S.showcase?"The gateway did not answer. The journal above is from the last successful read.":"The gateway did not answer.";
+        return false;
+      }
       S.showcase=data;
       lease=data.lease; entries=data.journal.entries;
     }else{
@@ -509,7 +513,7 @@ async function liveLoad(){
      if(!lease||!money(lease.cap_minor)||!b||![b.hold_available,b.committed_unsettled,b.total_captured].every(money)||!Array.isArray(entries)||(lease.authorizations&&!Array.isArray(lease.authorizations))||entries.some(e=>!e||!money(e.amount_minor)))throw new Error("unexpected response");
     const when=iso=>new Date(iso).toISOString().slice(11,16)+" UTC";
     const calls=[]; const log=[];
-    const auth=lease.authorizations&&lease.authorizations[0];
+    const auth=lease.authorizations?.at(-1);
     if(auth)log.push({t:when(entries.length?entries[0].created_at:auth.honor_until),m:`Authorization${auth.paypal_authorization_id?" "+auth.paypal_authorization_id:""} holds ${fmt(auth.amount_minor)} (read from the lease record).`});
     for(const e of showcase?[]:entries){
       if(e.ref_type!=="commit"||e.account!=="COMMITTED_UNSETTLED"||e.direction!=="D")continue;
@@ -542,9 +546,16 @@ function liveStart(){
   S.livePoll=setInterval(async()=>{
     const ok=await liveLoad();
     if(current!=="lease"||!S.user||!S.user.live)return;
-    if(S.liveChanged){S.liveChanged=false;paintLease({})}
-    else if(!ok)paintReadout();
+    if(ok&&!S.liveReady){S.liveReady=true;S.liveChanged=false;mount()}
+    else if(S.liveChanged){S.liveChanged=false;paintLease({})}
+    else if(!ok){
+      if(!S.liveReady)showLiveUnavailable();
+      else {paintReadout();paintControls()}
+    }
   },5000);
+}
+function showLiveUnavailable(){
+  $("#main").innerHTML=`<div class="wrap"><p class="sub" role="status">${esc(S.liveErr)}</p></div>`;
 }
 /* localStorage so a refresh, a new tab and a deep link keep the sample session. */
 const store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}},del:k=>{try{localStorage.removeItem(k)}catch(e){}}};
@@ -564,7 +575,8 @@ function leaseSource(){
   if(S.user?.showcase&&S.showcase?.mode==="fixture")return `<div class="wrap"><div class="modeband" role="note"><span class="dk-line"><span class="dk-dot sim" aria-hidden="true"></span><strong class="dk-mode">SAVED DEMO FIXTURE</strong></span><span class="dk-sub">Snapshot assembled for fallback from ${esc(S.showcase.fixture_on)}. Its raw run is unavailable, so it is not PayPal evidence.${S.showcase.unreachable?" The live gateway did not answer.":""}</span></div></div>`;
   if(!S.user?.live)return "";
   const ended=S.showcase?.ended||S.liveEnded;
-  return `<div class="wrap"><div class="modeband" role="note"><span class="dk-line"><span class="dk-dot live" aria-hidden="true"></span><strong class="dk-mode">LIVE PAYPAL SANDBOX${ended?" · SPENDING CLOSED":""}</strong></span><span class="dk-sub">${ended?"The last lease read is historical. New paid calls are refused.":"Balances are computed from the sandbox lease journal. This is not a fresh PayPal GET."}</span></div></div>`;
+  const status=ended?" · SPENDING CLOSED":S.showcase?.state==="expiring"?" · HOLD ENDS SOON":"";
+  return `<div class="wrap"><div class="modeband" role="note"><span class="dk-line"><span class="dk-dot live" aria-hidden="true"></span><strong class="dk-mode">LIVE PAYPAL SANDBOX${status}</strong></span><span class="dk-sub">${ended?"The last lease read is historical. New paid calls are refused.":"Balances are computed from the sandbox lease journal. This is not a fresh PayPal GET."}</span></div></div>`;
 }
 function leaseTabs(v){
   const item=(k,l,href)=>`<li><a href="${href}"${v===k?' aria-current="page"':""}>${l}</a></li>`;
@@ -792,16 +804,19 @@ function fillGauge(root){
 function paintControls(){
   const el=$("#controls"); if(!el)return;
   if(S.user?.showcase){
-    const data=S.showcase, live=deskState().mode==="live", shape=live?"live":data?.mode==="fixture"?"fixture":"end";
+    const data=S.showcase, live=!S.liveErr&&deskState().mode==="live", shape=live?"live":"end";
+    if(!live){
+      el.dataset.shape=shape;
+      el.innerHTML=`<p class="note-p">${esc(S.liveErr||"The demo hold cannot spend. The balance above is from the last journal read.")}</p>`;
+      return;
+    }
     if(el.dataset.shape!==shape||!el.querySelector("[data-desk]")){
       el.dataset.shape=shape;
-      const note=shape==="fixture"?`<p class="note-p">${data.unreachable?"The gateway did not answer, so this page shows a saved demo fixture from ":"No live demo lease is configured, so this page shows a saved demo fixture from "}<span class="num">${esc(data.fixture_on)}</span>. Its raw run is unavailable. The desk below is a separate simulation. <a href="/proof">Inspect recorded PayPal evidence.</a></p>`
-        :shape==="end"?`<p class="note-p">The demo lease is ${esc(data.lease.state)} or its honor window ended. The gateway refuses new paid calls. The balance above is a last journal read, not spendable funds. The desk below is a separate simulation.</p>`:"";
-      el.innerHTML=`${note}<section class="moment dk-moment" aria-labelledby="momh"><div class="dk-cols${live?"":" solo"}"><div class="dk-left"><h2 class="sec" id="momh">Check an amount</h2>${deskHtml("lease")}</div>
-         ${live?`<aside class="dk-real" aria-labelledby="realh"><h2 class="sec" id="realh">Run one sandbox tool call</h2><p>Claude Haiku 5.5 summarises a fixed paragraph. The kernel reserves 3 cents inside a locked transaction; the commitment becomes durable only if the tool succeeds. PayPal capture is a later settlement step.</p><button class="btn fill cta" data-act="showcase-run">Run the agent · up to $0.03</button><p class="help" id="showcase-budget"></p></aside>`:""}</div></section>`;
+      el.innerHTML=`<section class="moment dk-moment" aria-labelledby="momh"><div class="dk-cols"><div class="dk-left"><h2 class="sec" id="momh">Check an amount</h2>${deskHtml("lease")}</div>
+         <aside class="dk-real" aria-labelledby="realh"><h2 class="sec" id="realh">Run one sandbox tool call</h2><p>Claude Haiku 5.5 summarises a fixed paragraph. The kernel reserves 3 cents inside a locked transaction; the commitment becomes durable only if the tool succeeds. PayPal capture is a later settlement step.</p><button class="btn fill cta" data-act="showcase-run">Run the agent · up to $0.03</button><p class="help" id="showcase-budget"></p></aside></div></section>`;
     }
     paintDesk();
-    if(live){$("#showcase-budget").textContent=`Demo calls left, per visitor today: ${data?.remaining_calls??0}.`;syncRunButton()}
+    $("#showcase-budget").textContent=`Demo calls left, per visitor today: ${data?.remaining_calls??0}.`;syncRunButton();
     return;
   }
   if(S.user&&S.user.live){el.dataset.phase="live";el.innerHTML=`<p><strong>Live lease.</strong> Your agent spends through the gateway. This page only reads the journal. It cannot spend, settle or void.</p>`;return}
@@ -1269,7 +1284,7 @@ const FAQ=[
  ["What happens after the honor period?","After the honor period, capture is best effort. Day-four reauthorization and capture behavior are unproven."],
  ["Why not just give my agent a virtual card?","Agent cards with limits are real and useful. Pashadhara is a sandbox pilot for agent authority bounded by a PayPal hold and an auditable kernel journal. Capture batching and judged escrow have recorded runs; hosted self-service and lease closing are unfinished."],
  ["What if PayPal does not answer?","PayPal timeout handling is unproven end to end."],
- ["Is this live?","The showcase can run real agent calls against a PayPal sandbox lease while demo capacity is available. When no showcase lease is configured, the showcase shows a dated recording. The sample lease uses fixture data. All PayPal activity uses sandbox funds.",`Run the agent uses the gateway path that checks and commits the call price. ${faqTestTag}`]
+ ["Is this live?","The showcase can run real agent calls against a PayPal sandbox lease while demo capacity is available. When the live hold ends, the showcase labels the last journal read and turns off spending. The separate sample lease uses fixture data. All PayPal activity uses sandbox funds.",`Run the agent uses the gateway path that checks and commits the call price. ${faqTestTag}`]
 ];
 V.home=()=>`
 <section class="hero2"><div class="wrap">
@@ -1378,7 +1393,7 @@ V.quickstart=()=>`<div class="wrap quickstart"><p class="eyebrow">Developer inte
   }
 }</code></pre></li>
    <li><h2>Read the boundary</h2><p>GET <code>/api/v1/leases/&lt;lease id&gt;</code> for <code>hold_available</code>, <code>committed_unsettled</code> and <code>total_captured</code>. GET its <code>/journal</code> for the immutable postings. A served tool commits its price; a later PayPal capture is a different event. A refused MCP tool result returns a structured reason. A missing bearer must return HTTP 401 on protected REST reads.</p></li>
-   </ol><p class="help">Sandbox only. No production money path is offered. The public showcase has a separate lease and should not be used as an integration token. Several contract operations remain reserved and return 503. Due payout recovery uses an operator-only POST, never a read. <a href="/proof">Inspect recorded PayPal evidence</a> or <a href="/api/openapi.json">read the deployed API contract</a>.</p></div>`;
+   </ol><p class="help">Sandbox only. The public showcase uses a separate lease. The served API contract lists the operations enabled on this deployment. Due payout recovery uses an operator-only POST. <a href="/proof">Inspect recorded PayPal evidence</a> or <a href="/api/openapi.json">read the deployed API contract</a>.</p></div>`;
 function initHome(){
   howPaint(0);
   void deskInit();
@@ -1405,7 +1420,7 @@ const goodCents=v=>Number.isSafeInteger(v)&&v>=0;
 function deskState(){
   const d=DK.data;
   if(!d)return {mode:"loading"};
-  const b=d.lease?.balances, a=d.lease?.authorizations?.[0]||{};
+  const b=d.lease?.balances, a=d.lease?.authorizations?.at(-1)||{};
   if(d.mode==="live"&&!d.ended&&b&&goodCents(d.lease.cap_minor)&&goodCents(Number(b.hold_available))&&goodCents(Number(b.committed_unsettled))&&goodCents(Number(b.total_captured))){
     return {mode:"live",id:d.lease.id,cap:d.lease.cap_minor,F:Number(b.hold_available),A:Number(b.committed_unsettled),C:Number(b.total_captured),pa:a.paypal_authorization_id,honor:a.honor_until,left:Number(d.remaining_calls??0),readAt:d.read_at};
   }
@@ -1863,7 +1878,7 @@ function mount(){
     const waitLive=Boolean(S.user&&S.user.live&&v==="lease"&&!S.liveReady);
     main.innerHTML=waitLive?`<div class="wrap lease-skel" role="status" aria-label="Reading the demo lease"><span class="sk-line sk-h1"></span><span class="sk-line sk-sub"></span><span class="sk-cord"></span><div class="sk-row"><span class="sk-line"></span><span class="sk-line"></span><span class="sk-line"></span></div><span class="sr">Reading the demo lease.</span></div>`:V[v]();
     if(!waitLive&&(v==="lease"||v==="settle"||(v==="escrow"&&S.user)))main.insertAdjacentHTML("afterbegin",leaseTabs(v));
-    if(waitLive){liveLoad().then(ok=>{if(current!=="lease"||!S.user||!S.user.live)return;if(ok){S.liveReady=true;S.liveChanged=false;mount()}else $("#main").innerHTML=`<div class="wrap"><p class="sub" role="alert">${esc(S.liveErr)}</p></div>`})}
+    if(waitLive){liveLoad().then(ok=>{if(current!=="lease"||!S.user||!S.user.live)return;if(ok){S.liveReady=true;S.liveChanged=false;mount()}else {showLiveUnavailable();liveStart()}})}
     else if(v==="lease"){
       if(S.user&&S.user.live)liveStart();
       paintLease();

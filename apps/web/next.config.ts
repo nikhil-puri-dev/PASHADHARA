@@ -4,6 +4,7 @@ import type { NextConfig } from "next";
 // On Vercel the root Services config already routes /api, so leave it unset there.
 const api = process.env.PASHADHARA_API_ORIGIN;
 const config: NextConfig = {
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   devIndicators: false,
   agentRules: false,
   ...(api && { rewrites: async () => [{ source: "/api/:path*", destination: `${api}/api/:path*` }] }),

@@ -37,6 +37,10 @@ export async function commitUsageInTransaction(
     amount = usage.amount_minor;
   }
   const { status } = await checkUsage(tx, leaseId, amount, active);
+  if (usage.kind === 'job' && status === 'served' && (await tx.query(`
+    select 1 from public.captures where lease_id=$1 and decision_id is null and status in ('intent','pending','unknown')`, [leaseId])).rowCount) {
+    return { id: null, status: 'refused_exposure', amount_minor: amount, ledger_group_id: null, replayed: false };
+  }
 
   if (status !== 'served' && options.recordRefusal === false) {
     return { id: null, status, amount_minor: amount, ledger_group_id: null, replayed: false };

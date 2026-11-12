@@ -5,7 +5,9 @@ import * as kernel from '../../../packages/kernel/src/index.ts';
 import { issueToken } from '../src/auth.ts';
 import app from '../src/index.ts';
 
-const databaseUrl = 'postgres://kernel_login@127.0.0.1:15434/postgres';
+const database = process.env.GATEWAY_TEST_DATABASE ?? 'postgres';
+if (!/^(postgres|live_[a-z0-9_]+)$/.test(database)) throw new Error('Invalid throwaway database name');
+const databaseUrl = `postgres://kernel_login@127.0.0.1:15434/${database}`;
 const leaseSecret = 'fixture-only-lease-signing-secret';
 const adminKey = 'fixture-only-admin-key'.padEnd(32, 'x');
 const webhookId = 'fixture-only-webhook';
@@ -16,7 +18,7 @@ const money = (value: string) => ({ currency_code: 'USD', value });
 test('production entry serves sandbox approval, scoped auth and durable signed webhook reconciliation', async t => {
   Object.assign(process.env, {
     DATABASE_URL: databaseUrl, LEASE_TOKEN_SECRET: leaseSecret, ADMIN_KEY: adminKey,
-    API_BASE_URL: 'https://api.fixture.test/api', PAYPAL_WEBHOOK_ID: webhookId,
+    API_BASE_URL: 'https://api.fixture.test/api', PAYPAL_WEBHOOK_ID: webhookId, AI_ENABLED: 'false',
     PAYPAL_CLIENT_ID: 'fixture-client', PAYPAL_CLIENT_SECRET: 'fixture-secret',
   });
   const db = new kernel.Database(databaseUrl);
@@ -75,7 +77,7 @@ test('production entry serves sandbox approval, scoped auth and durable signed w
     headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
   });
   const create = async () => {
-    const response = await post('/api/v1/leases', { buyer_ref: 'fixture', cap_minor: 2000, unsettled_limit_minor: 500 });
+    const response = await post('/api/v1/leases', { buyer_ref: 'fixture', cap_minor: 2000, unsettled_limit_minor: 500 }, adminKey);
     assert.equal(response.status, 201);
     return await response.json() as { lease_id: string; lease_token: string; paypal_order_id: string; approve_url: string };
   };
@@ -122,8 +124,8 @@ test('production entry serves sandbox approval, scoped auth and durable signed w
   assert.equal((await app.request('/api/v1/tools/fixture-tool/call', {
     method: 'POST',
     headers: { authorization: `Bearer ${first.lease_token}`, 'X-Pashadhara-Lease': second.lease_id, 'Idempotency-Key': 'fixture' },
-  })).status, 401);
-  const invoke = async (token: string) => {
+  })).status, 404);
+  const invoke = async (token: string, status = 200) => {
     const hash = createHash('sha256').update('summarise\0fixture').digest('hex');
     const response = await app.request('/api/mcp', {
       method: 'POST',
@@ -132,12 +134,12 @@ test('production entry serves sandbox approval, scoped auth and durable signed w
         name: 'summarise', arguments: { text: 'fixture', idempotency_key: `${randomUUID()}:${hash}` },
       } }),
     });
-    assert.equal(response.status, 200);
+    assert.equal(response.status, status);
     return JSON.stringify(await response.json());
   };
   // No model key in this test environment, so the gateway refuses before any charge or provider call.
   assert.match(await invoke(first.lease_token), /tool_unavailable/);
-  assert.match(await invoke(first.lease_token + 'x'), /valid lease token is required/);
+  assert.deepEqual(JSON.parse(await invoke(first.lease_token + 'x', 401)), { error: 'unauthorized' });
   const sellerPath = '/api/v1/sellers';
   const sellerBody = { name: 'Fixture', paypal_email: 'fixture@example.test' };
   assert.equal((await post(sellerPath, sellerBody, adminKey + 'x')).status, 401);
@@ -147,8 +149,8 @@ test('production entry serves sandbox approval, scoped auth and durable signed w
   assert.equal((await post(sellerPath, sellerBody, seller.seller_key)).status, 401);
   const toolPath = (sellerId: string) => `/api/v1/sellers/${sellerId}/tools`;
   const toolBody = { id: 'fixture-tool', name: 'Fixture', price_minor: 100 };
-  assert.equal((await post(toolPath(randomUUID()), toolBody, seller.seller_key)).status, 401);
-  assert.equal((await post(toolPath(seller.id), { ...toolBody, seller_id: randomUUID() }, seller.seller_key)).status, 401);
+  assert.equal((await post(toolPath(randomUUID()), toolBody, seller.seller_key)).status, 404);
+  assert.equal((await post(toolPath(seller.id), { ...toolBody, seller_id: randomUUID() }, seller.seller_key)).status, 404);
 
   otherOrder.status = 'APPROVED';
   const spoofedOrder = new URL(returned);

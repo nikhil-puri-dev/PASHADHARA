@@ -1,5 +1,7 @@
 "use client";
 import { useEffect } from "react";
+import "../app/cord.css";
+import "../app/tide.css";
 import { startCord } from "./cord-engine";
 
 /* The shell is static. The engine fills #hdr, #main and #ftr and owns everything inside them. */

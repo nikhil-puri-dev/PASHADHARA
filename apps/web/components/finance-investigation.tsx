@@ -1,3 +1,5 @@
+import "../app/cord.css";
+import "../app/tide.css";
 import "../app/finance.css";
 
 export function FinanceInvestigation() {

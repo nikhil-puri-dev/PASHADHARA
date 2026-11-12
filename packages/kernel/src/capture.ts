@@ -15,9 +15,13 @@ type BeginCapture = {
 };
 
 export function beginCapture(db: Database, lease: string, input: BeginCapture) {
+  return db.transaction(lease, tx => beginCaptureInTransaction(tx, lease, input));
+}
+
+/** The caller already holds the lease lock. */
+export async function beginCaptureInTransaction(tx: Tx, lease: string, input: BeginCapture) {
   const request = input.request_id ?? randomUUID();
   const amount = input.allocations.reduce((total, line) => total + line.amount_minor, 0n);
-  return db.transaction(lease, async tx => {
     await one(tx, `select id from public.authorizations where lease_id=$1 and id=$2
       and status in ('created','partially_captured') and expires_at>clock_timestamp()`, [lease, input.authorization_id]);
     const call = await intent(tx, lease, 'capture', request, amount);
@@ -29,7 +33,6 @@ export function beginCapture(db: Database, lease: string, input: BeginCapture) {
       select $1,$2,ref_id,amount_minor from jsonb_to_recordset($3::jsonb) as x(ref_id text, amount_minor bigint)`,
     [capture.id, lease, JSON.stringify(input.allocations.map(line => ({ ...line, amount_minor: line.amount_minor.toString() })))]);
     return { ...call, capture_id: capture.id, invoice_id: capture.id, amount_minor: amount };
-  });
 }
 
 function findCapture(tx: Tx, lease: string, id: string) {

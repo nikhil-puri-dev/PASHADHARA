@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { type Database, one, type Tx } from './db.ts';
+import { type Database, type LeaseState, one, type Tx } from './db.ts';
 import { finish, intent, isSuccess, loadCall, objectField, paypalMinor, stringField, type Call, type Evidence } from './calls.ts';
 import { balances, post } from './journal.ts';
 
@@ -85,7 +85,11 @@ export function recordAuthorization(db: Database, lease: string, callId: string,
 }
 
 export function beginReauthorize(db: Database, lease: string, request: string = randomUUID()) {
-  return db.transaction(lease, async (tx, state) => {
+  return db.transaction(lease, (tx, state) => beginReauthorizeInTransaction(tx, lease, state, request));
+}
+
+/** The caller already holds the lease lock. */
+export async function beginReauthorizeInTransaction(tx: Tx, lease: string, state: LeaseState | null, request: string = randomUUID()) {
     if (state !== 'active') throw new Error('Lease is not active');
     const parent = await one<LiveAuthorization & { remaining: string }>(tx, `with recursive chain as (
       select id,parent_id,0 as depth from public.authorizations where lease_id=$1 and status in ('created','partially_captured')
@@ -101,7 +105,6 @@ export function beginReauthorize(db: Database, lease: string, request: string = 
     const amount = BigInt(parent.remaining);
     const call = await intent(tx, lease, 'reauthorize', request, amount);
     return { ...call, authorization_id: parent.id, paypal_authorization_id: parent.paypal_authorization_id, amount_minor: amount };
-  });
 }
 
 export async function finishReauthorize(tx: Tx, lease: string, call: Call, evidence: Evidence) {
@@ -122,12 +125,15 @@ export function completeReauthorize(db: Database, lease: string, callId: string,
 }
 
 export function beginVoid(db: Database, lease: string, request: string = randomUUID()) {
-  return db.transaction(lease, async tx => {
+  return db.transaction(lease, tx => beginVoidInTransaction(tx, lease, request));
+}
+
+/** The caller already holds the lease lock. */
+export async function beginVoidInTransaction(tx: Tx, lease: string, request: string = randomUUID()) {
     if ((await balances(tx, lease)).committed !== 0n) throw new Error('Settle or return commitments before voiding the authorization');
     const auth = await liveAuthorization(tx, lease);
     const call = await intent(tx, lease, 'void', request, null);
     return { ...call, authorization_id: auth.id, paypal_authorization_id: auth.paypal_authorization_id };
-  });
 }
 
 export async function finishVoid(tx: Tx, lease: string, call: Call, evidence: Evidence) {

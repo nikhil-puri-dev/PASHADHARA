@@ -11,5 +11,5 @@ test('the default entry serves liveness without opening a database connection', 
     servers: { url: string }[]; paths: Record<string, unknown>;
   };
   assert.deepEqual(contract.servers, [{ url: '/api' }]);
-  assert.ok(contract.paths['/webhooks/paypal']);
+  assert.deepEqual(contract.paths, {});
 });

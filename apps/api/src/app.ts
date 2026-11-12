@@ -1,5 +1,5 @@
 import type { Database } from '../../../packages/kernel/src/db.ts';
-import { createRoutes, type Authenticate, type Contract, type RouteHandler } from './routes.ts';
+import { API_BASE_PATH, createRoutes, type Authenticate, type Contract, type RouteHandler } from './routes.ts';
 import { readHandlers } from './read-handlers.ts';
 import { createMcp, unavailableKernelMeter, registeredTools, type Meter, type ToolDef } from './mcp.ts';
 import { webhookHandler, type WebhookDependencies } from './webhook.ts';
@@ -17,10 +17,18 @@ export function createApp(options: {
   meter?: Meter;
   tools?: readonly ToolDef[];
   mcpAllowedOrigins?: readonly string[];
+  publishImplementedContract?: boolean;
 }) {
   const handlers = { ...readHandlers(options.db), ...options.handlers };
   if (options.webhook) handlers.receivePayPalWebhook = webhookHandler(options.webhook);
-  const app = createRoutes(options.contract, handlers, options.authenticate);
+  const contract = options.publishImplementedContract ? {
+    ...options.contract, paths: Object.fromEntries(Object.entries(options.contract.paths).flatMap(([path, methods]) => {
+      const implemented = Object.fromEntries(Object.entries(methods).filter(([, op]) => Object.hasOwn(handlers, op.operationId)));
+      return Object.keys(implemented).length ? [[path, implemented]] : [];
+    })),
+  } : options.contract;
+  const app = createRoutes(contract, handlers, options.authenticate);
+  if (options.publishImplementedContract) app.get('/openapi.json', c => c.json({ ...contract, servers: [{ url: API_BASE_PATH }] }));
   app.use('/mcp', async (c, next) => { c.set('operation', 'mcp'); await next(); });
   app.route('/', createMcp(
     options.meter ?? unavailableKernelMeter, options.resolveMcpLease,

@@ -4,7 +4,7 @@ PASHADHARA gives an AI agent a spending budget backed by a PayPal sandbox author
 
 ## Try the demo
 
-Open the showcase lease and choose **Run the agent** to make a real Haiku-backed call while the sandbox authorization and demo budget are available. A successful call commits 3 cents to the journal; PayPal capture is separate. **Check this amount** previews the kernel decision without posting usage or calling a provider. **Proof** shows dated capture fees, PayPal reconciliation and a recorded escrow run. The showcase uses a dedicated sandbox hold and requires no signup. When no live lease is configured or the gateway cannot be reached, the UI labels its saved demo fixture and offers a separate browser simulation. That fixture has no traceable raw run and is not PayPal evidence. [Open the demo](https://pashadhara.vercel.app/lease?showcase=1)
+Open the showcase lease and choose **Run the agent** to make a real Haiku-backed call while the sandbox authorization and demo budget are available. A successful call commits 3 cents to the journal; PayPal capture is separate. **Check this amount** previews the kernel decision without posting usage or calling a provider. **Proof** shows dated capture fees, PayPal reconciliation and a recorded escrow run. The showcase uses a dedicated sandbox hold and requires no signup. The showcase labels an ended or stale journal read and shows no balance if there has been no successful read. The separate browser simulation uses fixture amounts. [Open the demo](https://pashadhara.vercel.app/lease?showcase=1)
 
 For an agent integration, start with the [developer quickstart](docs/quickstart.md). Lease creation requires an operator bearer. The hosted signup remains a prototype.
 
@@ -43,12 +43,12 @@ pnpm -r --if-present typecheck
 pnpm --filter @pashadhara/web build
 ```
 
-For the API service smoke test, also load the schema and roles into the throwaway container's default `postgres` database.
+Point the workspace tests at the fresh database created by the helper. Give the API integration tests their own fresh database because the kernel property tests leave fixture rows. Run from the repository root:
 
 ```bash
-docker exec pashadhara-rails-15434 psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/schema.sql
-docker exec pashadhara-rails-15434 psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/roles.sql
-KERNEL_TEST_DATABASE=live_local pnpm test
+KERNEL_TEST_DATABASE=live_local GATEWAY_TEST_DATABASE=live_local pnpm test
+bash apps/api/scripts/live-db.sh live_api
+GATEWAY_TEST_DATABASE=live_api pnpm --filter @pashadhara/api exec tsx --test test/production-entry.integration.mts test/live-gateway.integration.mts
 ```
 
 For the connected demo, copy `.env.example` to `.env`, set `DATABASE_URL` to the local kernel URL printed by the helper, and use sandbox credentials. Follow the showcase setup to create and activate the lease. Then start the API and web app in separate terminals. [Showcase setup](docs/showcase.md)

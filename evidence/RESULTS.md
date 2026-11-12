@@ -12,13 +12,15 @@ Three labels. **Measured** means a line in a log shows it. **Computed** means ou
 - Reauthorize on day 0: 422 REAUTHORIZATION_TOO_SOON. PayPal's description: "A reauthorization is only allowed once from Day 4 to Day 29 since the date of the original authorization."
 - `expiration_time` on a new authorization is 29 days after creation (a field value, not an observed expiry).
 - Payout of $1.00: HTTP 201, batch_status PENDING. A GET about 5 seconds later (logged): still PENDING, item PENDING.
+- A later, separate escrow run verified one USD 2.41 payout: independent PayPal GET returned batch and item SUCCESS. [Run and evidence](../docs/runs/replacement-sandbox-run.md)
+- A separate metered settlement on 2026-11-12 verified a USD 3.00 batched capture with USD 0.59 fee and a void of the authorization. [PayPal GET fields and journal check](settlement-sandbox-20261112.json)
 - `PayPal-Mock-Response` with {"mock_application_codes":"INSTRUMENT_DECLINED"} on capture: HTTP 403, empty body.
 
 ## Computed
 - Fee model 0.49 + 3.49%, a three-point fit. One $12 capture would cost about $0.91 (not measured).
 
 ## Unverified (no log line)
-- Payout reaching SUCCESS. One later GET printed SUCCESS in a command that was not logged. Treat it as unproven until re-measured with a logged GET.
+- The original USD 1.00 spike payout reaching SUCCESS. The separate USD 2.41 escrow payout above was verified.
 - PayPal's guarantee of funds inside the 3-day honor period, and capture behavior after day 3. This is documentation, not a measurement.
 - Whether reauthorization is repeatable. The error text says once. PayPal's docs describe repeated reauthorization.
 - Webhook latency and ordering.

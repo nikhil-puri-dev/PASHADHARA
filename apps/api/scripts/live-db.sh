@@ -15,4 +15,6 @@ docker exec "$box" psql -U postgres -d "$name" -v ON_ERROR_STOP=1 -q -f /tmp/sch
 docker exec "$box" psql -U postgres -d "$name" -v ON_ERROR_STOP=1 -q -f /tmp/roles.sql 2>/dev/null
 docker cp "$here/apps/api/sql/tool_results.sql" "$box:/tmp/tool_results.sql"
 docker exec "$box" psql -U postgres -d "$name" -v ON_ERROR_STOP=1 -q -f /tmp/tool_results.sql
+docker cp "$here/apps/api/sql/showcase.sql" "$box:/tmp/showcase.sql"
+docker exec "$box" psql -U postgres -d "$name" -v ON_ERROR_STOP=1 -q -f /tmp/showcase.sql
 echo "postgres://kernel_login@127.0.0.1:15434/$name"

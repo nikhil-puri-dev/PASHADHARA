@@ -33,8 +33,10 @@ test('the built Vercel API serves requests without node_modules', async t => {
   await cp(new URL(`../${api.outputDirectory}/`, import.meta.url), scratch, { recursive: true });
   assert.ok(!existsSync(join(scratch, 'node_modules')), 'The build output contains node_modules');
   process.chdir(scratch);
+  const database = process.env.GATEWAY_TEST_DATABASE ?? 'postgres';
+  if (!/^(postgres|live_[a-z0-9_]+)$/.test(database)) throw new Error('Invalid throwaway database name');
   Object.assign(process.env, {
-    NODE_ENV: 'production', DATABASE_URL: 'postgres://kernel_login@127.0.0.1:15434/postgres',
+    NODE_ENV: 'production', DATABASE_URL: `postgres://kernel_login@127.0.0.1:15434/${database}`,
     LEASE_TOKEN_SECRET: 'fixture-lease'.padEnd(32, 'x'), ADMIN_KEY: 'fixture-admin'.padEnd(32, 'x'),
     PAYPAL_CLIENT_ID: 'fixture-client', PAYPAL_CLIENT_SECRET: 'fixture-secret', PAYPAL_WEBHOOK_ID: '',
     API_BASE_URL: 'https://site.fixture.test/api',
@@ -60,7 +62,20 @@ test('the built Vercel API serves requests without node_modules', async t => {
   assert.equal((await fetch(origin + '/health')).status, 404);
   const spec = await fetch(origin + '/api/openapi.json');
   assert.equal(spec.status, 200);
-  assert.deepEqual(await spec.json(), { ...contract, servers: [{ url: '/api' }] });
+  const served = await spec.json() as typeof contract;
+  assert.deepEqual(served.servers, [{ url: '/api' }]);
+  const expected = new Set(['listLeases', 'createLease', 'getLease', 'authorizeLease', 'recoverPayouts',
+    'settleLease', 'reauthorizeLease', 'closeLease', 'getJournal', 'listTools', 'createJob', 'getJob',
+    'deliverJob', 'createSeller', 'reconcileLease']);
+  for (const [path, methods] of Object.entries(served.paths as Record<string, Record<string, { operationId: string }>>)) {
+    for (const [method, operation] of Object.entries(methods)) {
+      assert.ok(expected.delete(operation.operationId), operation.operationId);
+      assert.deepEqual(operation, contract.paths[path][method]);
+      const response = await fetch(origin + '/api' + path.replace(/\{[^}]+\}/g, '00000000-0000-4000-8000-000000000001'), { method });
+      assert.ok((operation.operationId === 'listTools' ? [200] : [400, 401]).includes(response.status), `${operation.operationId}: ${response.status}`);
+    }
+  }
+  assert.equal(expected.size, 0);
   const unauthorized = await fetch(origin + '/api/v1/leases');
   assert.equal(unauthorized.status, 401);
   assert.match(unauthorized.headers.get('x-request-id') ?? '', /^[0-9a-f-]{36}$/);
@@ -71,5 +86,5 @@ test('the built Vercel API serves requests without node_modules', async t => {
       'paypal-transmission-id': 'fixture', 'paypal-transmission-sig': 'fixture', 'paypal-transmission-time': 'fixture',
     },
     body: JSON.stringify({ id: 'fixture', event_type: 'PAYMENT.CAPTURE.COMPLETED', resource: { id: 'capture' } }),
-  })).status, 503);
+  })).status, 404);
 });

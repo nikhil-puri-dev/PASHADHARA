@@ -24,10 +24,20 @@ async function main() {
       const created = await flow.create({ ...input, body: { buyer_ref: 'public-showcase', cap_minor: 1000, unsettled_limit_minor: 700 } });
       if (created.status !== 201) throw new Error('Sandbox order creation failed.');
       const body = created.body as { lease_id: string; approve_url: string };
+      await db.transaction(null, tx => tx.query('insert into public.showcase_leases(lease_id) values ($1)', [body.lease_id]));
       console.log(JSON.stringify({ http: created.status, lease_id: body.lease_id, approve_url: body.approve_url }));
     } else {
+      const registered = await db.transaction(null, tx => tx.query('select 1 from public.showcase_leases where lease_id=$1', [leaseId]));
+      if (!registered.rowCount) throw new Error('Sandbox order was not registered by showcase create.');
       const activated = await flow.authorize({ ...input, body: undefined });
       if (activated.status !== 200) throw new Error('Sandbox approval is not confirmed.');
+      await db.transaction(leaseId!, async tx => {
+        await tx.query('select pg_advisory_xact_lock(234171,4)');
+        const published = await tx.query(`update public.showcase_leases s set published_at=coalesce(s.published_at,now())
+          where s.lease_id=$1 and exists (select 1 from public.leases l join public.authorizations a on a.lease_id=l.id
+            where l.id=s.lease_id and l.state='active' and a.status in ('created','partially_captured') and a.honor_until>clock_timestamp())`, [leaseId]);
+        if (!published.rowCount) throw new Error('Sandbox approval has no active honor window.');
+      });
       console.log(JSON.stringify({ http: activated.status, showcase_lease_id: leaseId }));
     }
   } finally {

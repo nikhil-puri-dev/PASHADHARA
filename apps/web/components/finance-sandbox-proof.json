@@ -1,0 +1,47 @@
+{
+ "provenance": "measured",
+ "note": "Sandbox only. Allowlisted fields. The tool charges are local journal commitments; nothing was captured or paid out.",
+ "refusal_probe": {
+  "tool": "finance_payment_bundle",
+  "isError": true,
+  "reason": "cap_reached",
+  "served_before": {
+   "n": 5,
+   "cents": 10
+  },
+  "served_after": {
+   "n": 5,
+   "cents": 10
+  }
+ },
+ "replay_probe": {
+  "tool": "finance_payment_lookup",
+  "isError": false,
+  "replayed": true,
+  "charged_minor": 0,
+  "served_after": {
+   "n": 5,
+   "cents": 10
+  }
+ },
+ "journal": {
+  "served": 5,
+  "refused": 1,
+  "stored": 5,
+  "cents": 10
+ },
+ "local_authorization": {
+  "id_matches_paypal": true,
+  "amount_minor": 16,
+  "status": "created"
+ },
+ "paypal_get": {
+  "http_status": 200,
+  "id_matches_local": true,
+  "status": "CREATED",
+  "amount": {
+   "currency_code": "USD",
+   "value": "0.16"
+  }
+ }
+}

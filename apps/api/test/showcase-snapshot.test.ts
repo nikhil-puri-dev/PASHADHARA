@@ -13,7 +13,8 @@ test('the public live showcase returns one repeatable-read journal snapshot', as
       transactions++;
       isolations.push(isolation);
       const tx = { query: async (sql: string) => {
-        if (sql.includes('from public.leases l where')) return { rows: [{ id: lease, state: 'active', cap_minor: '200', unsettled_limit_minor: '100', guaranteed_now: true, authorizations: [], balances: { hold_available: '197', committed_unsettled: '3', total_captured: '0' } }] };
+        if (sql.includes('transaction_timestamp()')) return { rows: [{ read_at: new Date('2026-11-12T12:00:00Z') }] };
+        if (sql.includes('from public.leases l where')) return { rows: [{ id: lease, state: 'active', cap_minor: '200', unsettled_limit_minor: '100', guaranteed_now: true, authorizations: [{ status: 'created', amount_minor: '200', honor_until: '2026-11-15T12:00:00Z' }], balances: { hold_available: '197', committed_unsettled: '3', total_captured: '0' } }] };
         if (sql.includes('from public.ledger_entries where')) return { rows: [] };
         if (sql.includes('from public.tool_calls t')) return { rows: [] };
         if (sql.includes('from public.captures where')) return { rows: [] };
@@ -30,6 +31,7 @@ test('the public live showcase returns one repeatable-read journal snapshot', as
   assert.deepEqual(isolations, ['repeatable read']);
   const body = await response.json();
   assert.equal(body.lease.balances.hold_available, 197);
+  assert.equal(body.read_at, '2026-11-12T12:00:00.000Z');
 });
 
 test('the public price preview never locks the live lease', async () => {
