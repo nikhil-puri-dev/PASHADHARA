@@ -89,8 +89,8 @@ export function Escrow() {
             <div className="act ok">Captured {fixed(e.capture.amount)}, {e.capture.status}. Seller payout {e.payout.status}, {fixed(e.payout.amount)} after PayPal&apos;s {fixed(e.capture.fee)} fee.</div>
             <details>
               <summary>How judging works</summary>
-              <p>The buyer sets a rubric before the job: score thresholds that map to a share of the price. The judges only return a verdict and a score. The database maps those to an amount, so no model ever chooses or emits one. Both judges passed and scored 100 here, so the full {fixed(job)} was released.</p>
-              <p className="muted small" style={{ marginTop: 8 }}>PayPal&apos;s separate payout processing fee of $0.25 appears in its response and is not in our journal.</p>
+              <p>When both judges pass, the kernel uses the lower score to select a band in the buyer’s rubric. In this run the buyer set a single band that paid 100% at any passing score. Both judges passed with 100 and the kernel released {fixed(job)}.</p>
+              <p className="muted small" style={{ marginTop: 8 }}>The recorded PayPal payout GET reported a separate $0.25 processing fee. The journal records the seller payout of {fixed(e.payout.amount)}.</p>
             </details>
             <Source>PayPal capture response ({e.capture.id}), PayPal payout GET (SUCCESS), OpenAI and Anthropic judge verdicts, and the database decision. Recorded {day(e.date)}. <Link href="/proof#escrow">PayPal evidence</Link></Source>
           </div>
@@ -105,44 +105,41 @@ const MCP = "https://pashadhara.vercel.app/api/mcp";
 const FIRST_READ = `curl -fsS -H "Authorization: Bearer $BUDGET_TOKEN" https://pashadhara.vercel.app/api/v1/leases/$BUDGET_ID`;
 const CONFIGS: Record<string, { label: string; code: string; note: string }> = {
   code: { label: "Claude Code", code: `claude mcp add --transport http pashadhara \\\n  ${MCP} \\\n  --header "Authorization: Bearer $BUDGET_TOKEN"`, note: "Adds the gateway as a remote MCP server." },
-  json: { label: "Cursor and other clients", code: `{\n  "mcpServers": {\n    "pashadhara": {\n      "type": "http",\n      "url": "${MCP}",\n      "headers": { "Authorization": "Bearer $BUDGET_TOKEN" }\n    }\n  }\n}`, note: "Standard remote MCP settings. Check your client’s configuration format." },
+  json: { label: "Cursor", code: `{\n  "mcpServers": {\n    "pashadhara": {\n      "url": "${MCP}",\n      "headers": { "Authorization": "Bearer \${env:BUDGET_TOKEN}" }\n    }\n  }\n}`, note: "Add this to .cursor/mcp.json. Set BUDGET_TOKEN in Cursor’s environment before launching it." },
   rest: { label: "Read the hold (REST)", code: `curl -H "Authorization: Bearer $BUDGET_TOKEN" \\\n  https://pashadhara.vercel.app/api/v1/leases/$BUDGET_ID`, note: "Returns hold_available, committed_unsettled and total_captured." },
 };
 
 export function Developers() {
-  const s = useShowcase();
   const [tab, setTab] = useState("code");
   const [copied, setCopied] = useState<string | null>(null);
   const cfg = CONFIGS[tab] ?? CONFIGS.code!;
   const copy = async (key: string, text: string) => { try { await navigator.clipboard.writeText(text); setCopied(key); setTimeout(() => setCopied(null), 1500); } catch {} };
-  const seen = new Map<string, number | null>();
-  for (const c of s.data?.calls ?? []) seen.set(c.tool_id, cents(c.price_minor));
-  const tools = seen.size ? [...seen] : [["summarise", null] as [string, number | null]];
   return (
     <Shell route="developers">
       <div className="page">
         <div className="pagehead"><h1>Connect your agent</h1><p className="muted">The gateway is a remote MCP server. Your agent calls paid tools. Each call is checked against the hold before it runs.</p></div>
-        <section className="panel">
+        <section className="panel developer-setup" id="setup">
           <div className="cap"><span>Set up</span><span>Sandbox</span></div>
           <div className="body">
             <div className="tabs" role="group" aria-label="Choose a client">
               {Object.entries(CONFIGS).map(([k, v]) => <button key={k} aria-pressed={tab === k} onClick={() => setTab(k)}>{v.label}</button>)}
             </div>
             <h2>Approve a sandbox hold</h2>
-            <p>A pilot operator creates the budget and issues its lease ID and scoped token. The buyer approves the PayPal sandbox hold. Public visitors can <Link href="/review">open the prepared run</Link> or use the shared demo on <Link href="/budget">Budget</Link>; they do not receive a private token here.</p>
+            <p>The sandbox buyer approves a hold created by the owner. The owner issues the lease ID and scoped token. To try the shared demo, <Link href="/check">check a spend</Link> or <Link href="/review">replay a recorded decision</Link>.</p>
             <h2>{tab === "rest" ? "Read the authorized hold" : "Add the connection"}</h2>
             <pre tabIndex={0}><code>{cfg.code}</code></pre>
-            <p className="muted small">{cfg.note} Set your credentials locally.</p>
-            <div className="row"><button className="btn" onClick={() => copy("cfg", cfg.code)}>{copied === "cfg" ? "Copied" : tab === "rest" ? "Copy request" : "Copy config"}</button></div>
+            <p className="muted small">{cfg.note}{tab === "json" ? <> <a href="https://cursor.com/docs/mcp#config-interpolation">Cursor configuration reference</a>.</> : " Set your credentials locally."}</p>
+            <div className="row"><button className="btn pri" type="button" onClick={() => copy("cfg", cfg.code)}>{copied === "cfg" ? "Copied" : tab === "rest" ? "Copy request" : "Copy config"}</button></div>
             {tab !== "rest" && <><h2>Make a first read</h2><pre tabIndex={0}><code>{FIRST_READ}</code></pre><div className="row"><button className="btn" onClick={() => copy("read", FIRST_READ)}>{copied === "read" ? "Copied" : "Copy first request"}</button></div></>}
             <h2>Verify before spending</h2>
-            <p>Look for <code>state: active</code> and <code>guaranteed_now: true</code>. Read <code>balances.hold_available</code> in cents. Then list tools in your client to confirm the current price. After the first paid call, compare its receipt with the lease journal. If a response is lost, check the journal. Retry the same MCP invocation only with its original idempotency key and identical inputs.</p>
+            <p>Look for <code>state: active</code> and <code>guaranteed_now: true</code>. The lease read shows the free hold balance in cents. List tools in your client to confirm prices and use <code>check_budget</code> to see whether a call fits. After a paid call, compare the receipt with the lease journal. If a response is lost, check the journal and retry only with the original idempotency key and identical inputs.</p>
           </div>
         </section>
         <section className="panel">
-          <div className="cap"><span>Paid tools</span><span>{seen.size ? "Historical prices from journal rows" : "Price is set in the database"}</span></div>
+          <div className="cap"><span>Public MCP tools</span><span>Recorded discovery · 12 Nov 2026</span></div>
           <div className="scroll"><table className="tbl"><thead><tr><th>Tool</th><th className="amt">Price</th><th>Does</th></tr></thead><tbody>
-            {tools.map(([name, p]) => <tr key={name}><td className="mono">{name}</td><td className="amt">{p != null ? usd(p) : ""}</td><td>{name === "summarise" ? "Summarises supplied text" : "Paid tool on the gateway"}</td></tr>)}
+            <tr><td className="mono">summarise</td><td className="amt">$0.03</td><td>Summarises supplied text</td></tr>
+            <tr><td className="mono">check_budget</td><td className="amt">Free</td><td>Checks whether a paid call would fit the lease</td></tr>
           </tbody></table></div>
         </section>
         <section className="panel" id="renew">
@@ -182,14 +179,14 @@ export function Proof() {
         </section>
         <section className="panel" id="limit-check">
           <div className="cap"><span>Live amount preview</span><Pill kind="n">Computed · no posting</Pill></div>
-          <div className="body"><h2>What an amount check proves</h2><p>The gateway checks the supplied amount against the journal at the time of the request. No tool runs, no journal entry is written, and PayPal is not contacted. The response is only shown on the check.</p><Link href="/">Back to the check</Link></div>
+          <div className="body"><h2>What an amount check proves</h2><p>The gateway checks the amount against the free hold balance and unsettled spending limit at the time of the request. The check runs no tool, writes no journal entry and makes no PayPal request.</p><Link href="/check">Back to the check</Link></div>
         </section>
         <section className="panel" id="hold">
           <div className="cap"><span>The live demo hold</span><span>{s.data?.read_at ? `Read ${utc(s.data.read_at)}` : ""}</span></div>
           <div className="body">
             {h?.cap != null ? (
               <dl className="kv">
-                {h.paypalId && <><dt>PayPal authorization</dt><dd>{h.paypalId}</dd></>}
+                {(h.paypalId || h.last4) && <><dt>PayPal authorization</dt><dd>{h.last4 ? `Ending in ${h.last4}` : h.paypalId}</dd></>}
                 {h.cap != null && <><dt>Authorized amount</dt><dd>{usd(h.cap)} USD</dd></>}
                 {h.honor && <><dt>Guaranteed until</dt><dd>{utc(h.honor)}</dd></>}
                 {h.expires && <><dt>PayPal authorization expires</dt><dd>{utc(h.expires)}</dd></>}

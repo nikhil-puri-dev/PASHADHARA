@@ -165,3 +165,10 @@ test('the summarise description carries no hard-coded price, the registry owns i
   const tool = summariseTool({ apiKey: 'x', limitUsd: 1 });
   assert.doesNotMatch(tool.description, /cent|\$|USD|price/i);
 });
+
+test('initialize carries standard server metadata: title, website and icons', async () => {
+  const message = await rpc(createMcp(async () => ({ ok: false, error: 'metering_unavailable' }), async () => null, available), 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'test', version: '0' } });
+  const info = message.result.serverInfo;
+  assert.equal(info.name, 'pashadhara'); assert.equal(info.title, 'Pashadhara'); assert.match(info.websiteUrl, /^https:\/\//);
+  assert.deepEqual(info.icons, [{ src: new URL('/mark.svg', info.websiteUrl).href, mimeType: 'image/svg+xml', sizes: ['any'] }]);
+});

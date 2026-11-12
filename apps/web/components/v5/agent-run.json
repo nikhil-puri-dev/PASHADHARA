@@ -1,0 +1,30 @@
+{
+  "provenance": "recorded",
+  "date": "12 Nov 2026",
+  "note": "Allowlisted from evidence/finance-sandbox-run2-20261112.jsonl and finance-sandbox-proof2-20261112.json. No ids. The tool data is synthetic fixture data. The PayPal hold, the capture and the model calls were real sandbox calls.",
+  "model": "claude-haiku-5-5",
+  "hold": 20,
+  "steps": [
+    { "kind": "tools", "title": "Reads the tool list", "detail": "Lookup 2¢, bundle 20¢, and a free check_budget." },
+    { "kind": "think", "title": "Thinks", "ms": 5374 },
+    { "kind": "preflight", "title": "Asks check_budget about the 20¢ bundle", "detail": "Affordable. 20¢ remaining. Nothing is spent by asking.", "price": 20, "remaining": 20 },
+    { "kind": "think", "title": "Decides against the bundle", "ms": 4748 },
+    { "kind": "call", "tool": "lookup B", "price": 2, "ms": 119, "why": "Different invoice numbers one day apart; payment evidence would show whether both were paid." },
+    { "kind": "call", "tool": "lookup C", "price": 2, "ms": 81, "why": "Differing supplier names and invoice formats; evidence would show whether the amount was paid twice." },
+    { "kind": "call", "tool": "lookup I", "price": 2, "ms": 68, "why": "Same amount and date but a different supplier name and invoice number." },
+    { "kind": "call", "tool": "lookup K", "price": 2, "ms": 70, "why": "A suffixed invoice with a slightly different amount; it may be a credit note offset." },
+    { "kind": "think", "title": "Thinks again", "ms": 4193 },
+    { "kind": "call", "tool": "lookup J", "price": 2, "ms": 48, "why": "Different invoice numbers one day apart with the same amount." },
+    { "kind": "think", "title": "Writes its findings", "ms": 5061 },
+    { "kind": "settle", "title": "Operator settles once", "detail": "Five 2¢ receipts become one capture of 10¢." },
+    { "kind": "reconcile", "title": "PayPal is read back" }
+  ],
+  "settlement": { "captured": 10, "fee": 10, "receipts": 5, "groups": 5, "allocations": 5 },
+  "paypal": {
+    "authorization": { "status": "PARTIALLY_CAPTURED", "amount": "0.20", "http": 200 },
+    "capture": { "status": "COMPLETED", "amount": "0.10", "fee": "0.10", "http": 200 },
+    "readAt": "2026-11-12T16:11:58Z"
+  },
+  "result": { "score": "9 of 12", "note": "Scored on synthetic labels. One nondeterministic sample, no advantage over the baselines claimed." },
+  "usage": { "inputTokens": 18300, "outputTokens": 3308, "requests": 4, "costUsdEstimate": 0.035, "wallMs": 20003 }
+}

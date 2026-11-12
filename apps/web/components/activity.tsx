@@ -55,10 +55,10 @@ export function Activity() {
                   </tbody>
                 </table></div>
               ) : (
-                <div className="empty"><p>{all.length ? "No calls match this filter." : "No calls on this hold yet."}</p>{!all.length && <Link className="btn" href="/">Check a spend</Link>}{!all.length && <Link href="/review">Open the recorded run</Link>}</div>
+                <div className="empty"><p>{all.length ? "No calls match this filter." : "No calls on this hold yet."}</p>{!all.length && <Link className="btn" href="/check">Check a spend</Link>}{!all.length && <Link href="/review">Open the recorded run</Link>}</div>
               )}
               {sel && !call && <p role="status" className="empty">This call is not in the current public journal.</p>}
-              {!refusedAny && <p className="src" style={{ margin: 16 }}>No refused call has been recorded on this hold yet. <Link href="/">Check a spend</Link> runs the limit check. That check posts nothing, so it is not listed here.</p>}
+              {!refusedAny && <p className="src" style={{ margin: 16 }}>No refused call has been recorded on this hold yet. <Link href="/check">Check a spend</Link> previews the decision without posting a journal row.</p>}
             </section>
             {call && (
               <aside className="sheet" ref={sheet} aria-label="Call detail" tabIndex={-1}>

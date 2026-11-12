@@ -53,8 +53,8 @@ function Replay({ reason, titled, onEngage }: { reason?: string; titled: boolean
       <Heading>{titled ? "Can this agent make this spend?" : "Check a spend"}</Heading>
       <dl className="compare">
         <dt>Set by</dt><dd className="who"><span className="num">Sandbox buyer</span></dd>
-        <dt>Limit</dt><dd><span className="num">{usd(record.hold)}</span><span className="unit">measured</span></dd>
-        <dt>Available</dt><dd><span className="num">{usd(available)}</span><span className="unit">{step === "served" ? "computed, after this lookup" : "computed"}</span></dd>
+        <dt>Held at PayPal</dt><dd><span className="num">{usd(record.hold)}</span><span className="unit">measured</span></dd>
+        <dt>Free in the hold</dt><dd><span className="num">{usd(available)}</span><span className="unit">{step === "served" ? "computed, after this lookup" : "computed"}</span></dd>
         <dt>This request</dt><dd className="request-amt"><span className="num">{usd(step === "served" ? served.price : blocked.price)}</span><span className="unit">computed</span></dd>
       </dl>
       <p className="ask">{step === "served" ? "Check invoice pair A. Fixture invoices." : "Check invoice payments. Fixture invoices."}</p>
@@ -108,7 +108,7 @@ export function Refusal({ r, check = false }: { r: TryResult | RunResult; check?
         ["Money", "Nothing was posted. No journal posting."],
         ["Requested", "Limit check"],
         ["Amount", usd(r.price)],
-        ["Why", `${usd(r.price)} is within the ${usd(r.remaining)} available`],
+        ["Why", "Fits both the free hold balance and the unsettled spending limit."],
         ["Evidence", "Live check. Computed. PayPal was not contacted."],
       ]} />
     );
@@ -118,7 +118,7 @@ export function Refusal({ r, check = false }: { r: TryResult | RunResult; check?
   return (
     <Receipt tone="refused" decision="Refused" detail={r.reason === "cap_reached" && delta > 0 ? `${usd(delta)} over the limit` : why} next={check ? <Link href="/proof#limit-check">What this check proves</Link> : <Link href="/activity">Check the journal</Link>} rows={[
       ["Tool", "Did not run"],
-      ["Money", check ? `${r.remaining != null ? `${usd(r.remaining)} available at the check. ` : ""}$0.00 charged. Model did not run. No journal posting.` : "No charge committed."],
+      ["Money", check ? `${r.remaining != null ? `${usd(r.remaining)} free in the hold at the check. ` : ""}$0.00 charged. No journal posting.` : "No charge committed."],
       ["Requested", check ? "Limit check" : "Paid sandbox summary"],
       ["Amount", r.price != null ? usd(r.price) : "Unavailable"],
       ["Why", why],
@@ -152,7 +152,8 @@ export function SpendingInstrument({ forceReplay = false, place = "check" }: { f
   }
   const before = h.available as number;
   const cap = h.cap as number;
-  const fallback = before + 1;
+  const edge = h.spendable ?? before;
+  const fallback = edge + 1;
   const typed = raw ?? (fallback / 100).toFixed(2);
   const amount = parseDollars(typed);
   const bad = raw != null && amount == null;
@@ -195,13 +196,14 @@ export function SpendingInstrument({ forceReplay = false, place = "check" }: { f
         <dl className="compare">
           {place === "check" && <>
             <dt>Set by</dt><dd className="who"><span className="num">Sandbox buyer</span></dd>
-            <dt>Limit</dt><dd><span className="num">{usd(cap)}</span><span className="unit">computed</span></dd>
-            <dt>Available</dt><dd><span className="num">{usd(before)}</span><span className="unit">computed</span></dd>
+            <dt>Held at PayPal</dt><dd><span className="num">{usd(cap)}</span><span className="unit">computed</span></dd>
+            <dt>Spendable now</dt><dd><span className="num">{usd(edge)}</span><span className="unit">computed</span></dd>
+            <dt>Free in the hold</dt><dd><span className="num">{usd(before)}</span><span className="unit">computed</span></dd>
           </>}
           <dt><label htmlFor="instrument-amount">Amount in USD</label></dt>
           <dd className="request-amt"><span className="num"><input className="amt" id="instrument-amount" value={typed} inputMode="decimal" aria-invalid={bad} onChange={e => { setRaw(e.target.value); setOutcome(null); }} /></span><span className="unit">live check</span></dd>
         </dl>
-        <p className="ask">{bad ? "That amount cannot be checked. The tool does not run." : raw == null ? "Prepared as one cent over the available hold. Change the amount to test another. The tool does not run." : "Checking the amount in the field. The tool does not run."}</p>
+        <p className="ask">{bad ? "That amount cannot be checked." : raw == null ? "Starts one cent over what is spendable. You can enter another amount. The check posts nothing." : "The check posts nothing."}</p>
         {bad && <p role="alert">Enter an amount from $0.01 to $999,999.99.</p>}
         <Boundary state={mark} />
         <div className="actionline">
@@ -210,9 +212,9 @@ export function SpendingInstrument({ forceReplay = false, place = "check" }: { f
         </div>
       </form>
       {r && outcome?.mode === "run" && r.kind === "served" ? (
-        <Receipt tone="served" decision="Served" detail={`${usd(r.price)} committed. ${usd(r.remaining)} left`} next={<Link href="/activity">Open the journal</Link>} rows={[
+        <Receipt tone="served" decision="Served" detail={`${usd(r.price)} committed. ${usd(r.remaining)} free in the hold`} next={<Link href="/activity">Open the journal</Link>} rows={[
           ["Tool", "summary" in r && r.summary ? `Ran. ${r.summary}` : "Ran. Model output was not returned."],
-          ["Money", `${usd(r.price)} committed. ${usd(r.remaining)} left. Journal commitment. No PayPal capture by this request.`],
+          ["Money", "Journal commitment. No PayPal capture by this request."],
           ["Requested", "Summarise the prepared note"],
           ["Amount", usd(r.price)],
           ["Why", "Inside the limits at the moment of the call"],
@@ -236,7 +238,7 @@ export function SpendingInstrument({ forceReplay = false, place = "check" }: { f
 
 export function Home({ review = false }: { review?: boolean }) {
   return (
-    <Shell route="" recorded={review}>
+    <Shell route={review ? "review" : "check"} recorded={review}>
       <div className="page desk">
         <SpendingInstrument forceReplay={review} place="check" />
       </div>

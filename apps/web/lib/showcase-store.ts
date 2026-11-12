@@ -78,7 +78,11 @@ export function hold(d: Showcase | null, now = Date.now()) {
     else if (state !== "ended") state = honorMs - now <= 86_400_000 ? "expiring" : state === "unknown" ? "active" : state;
   }
   const unsettled = cents(d.lease?.unsettled_limit_minor);
-  const spendable = cents(b.spendable_minor);
+  const spendable = cents(b.spendable_minor) ?? (
+    unsettled != null && available != null && spent != null
+      ? Math.max(0, Math.min(available, unsettled - spent))
+      : null
+  );
   const granted = d.journal?.entries?.[0]?.created_at ?? null;
   return { cap, available, spent, collected, honor, honorMs, state, paypalId: auth?.paypal_authorization_id ?? null, last4: auth?.paypal_authorization_last4 ?? null, expires: auth?.expires_at ?? null, unsettled, spendable, granted };
 }

@@ -1,11 +1,17 @@
 import Link from "next/link";
+import { Shell } from "../components/site";
 
 export default function NotFound() {
   return (
-    <main style={{ padding: "96px clamp(16px,4vw,56px)" }}>
-      <h1 style={{ fontSize: "clamp(2.4rem,6vw,5rem)", fontWeight: 600, letterSpacing: "-.03em", lineHeight: 1 }}>Page not found.</h1>
-      <p style={{ marginTop: 24, maxWidth: "32rem" }}>That address is not part of Pashadhara. The lease, escrow, settle and proof pages live behind the home page.</p>
-      <p style={{ marginTop: 24 }}><Link className="btn fill" href="/">Back to the home page</Link></p>
-    </main>
+    <Shell route="">
+      <div className="page">
+        <div className="pagehead">
+          <p className="eyebrow">404</p>
+          <h1>Page not found.</h1>
+          <p>That address is not part of Pashadhara. Everything lives on the journey page or under the links in the menu.</p>
+        </div>
+        <div className="row"><Link className="btn pri" href="/">Back to the journey</Link><Link className="btn" href="/proof">PayPal evidence</Link></div>
+      </div>
+    </Shell>
   );
 }

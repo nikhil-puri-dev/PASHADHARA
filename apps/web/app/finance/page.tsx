@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { FinanceInvestigation } from "../../components/finance-investigation";
+import { Finance } from "../../components/finance";
 
-export const metadata: Metadata = { title: "Recorded finance investigation | Pashadhara" };
-export default function Page() { return <FinanceInvestigation />; }
+export const metadata: Metadata = { title: "Finance agent" };
+export default function Page() { return <Finance />; }

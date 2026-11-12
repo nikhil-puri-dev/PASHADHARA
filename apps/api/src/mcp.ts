@@ -47,6 +47,13 @@ export const toyTools: readonly ToolDef[] = [
 export const unavailableKernelMeter: Meter = async () => ({ ok: false, error: 'metering_unavailable' });
 
 /** The lease resolver must verify a scoped bearer token, not merely parse one. */
+/* Standard Implementation metadata (MCP 2025-11-25: title, websiteUrl, icons). Clients that do not read it ignore it. */
+const WEB_ORIGIN = 'https://pashadhara.vercel.app';
+export const SERVER_INFO = {
+  name: 'pashadhara', title: 'Pashadhara', version: '0.1.0', websiteUrl: WEB_ORIGIN,
+  icons: [{ src: `${WEB_ORIGIN}/mark.svg`, mimeType: 'image/svg+xml', sizes: ['any'] }],
+};
+
 export function createMcp(
   meter: PreviewMeter, resolveLease: (request: Request) => Promise<string | null>,
   available: () => Promise<readonly (string | { id: string; price_minor: number })[]>, tools: readonly ToolDef[] = toyTools,
@@ -81,7 +88,7 @@ export function createMcp(
       const rpc = await c.req.raw.clone().json().catch(() => null) as { method?: unknown } | { method?: unknown }[] | null;
       if ((Array.isArray(rpc) ? rpc : [rpc]).some(m => m?.method === 'tools/call')) return c.json({ error: 'unauthorized' }, 401, { 'www-authenticate': 'Bearer realm="pashadhara-lease"' });
     }
-    const server = new McpServer({ name: 'pashadhara', version: '0.1.0' });
+    const server = new McpServer(SERVER_INFO);
     for (const tool of tools) {
       server.registerTool(tool.name, {
         description: tool.description,

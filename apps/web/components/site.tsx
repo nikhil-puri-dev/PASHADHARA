@@ -2,9 +2,10 @@
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import "../app/pd.css";
+import { SiteBrand, SiteFooter, SitePages } from "./v5/chrome";
+import { fontVars } from "./v5/fonts";
+import { cx } from "./v5/ui";
 import { age, hold, useShowcase, usd, utc, type Showcase } from "../lib/showcase-store";
-
-export const NAV: [string, string][] = [["/", "Check"], ["/budget", "Budget"], ["/activity", "Journal"]];
 
 export function useNow(ms = 30_000) {
   const [now, setNow] = useState(() => Date.now());
@@ -16,37 +17,26 @@ export function useNow(ms = 30_000) {
 export function Freshness({ s, now }: { s: ReturnType<typeof useShowcase>; now: number }) {
   if (!s.data) return <span className="stale">{s.loading ? "Reading the live hold..." : "Live read unavailable"}</span>;
   if (s.failedAt && s.goodAt) return <span className="stale">Last good read {age(now - s.goodAt)} ago. The gateway did not answer.</span>;
-  return <span>Budget read {utc(s.data.read_at ?? s.goodAt)}</span>;
+  return <span><b>Live</b> read {utc(s.data.read_at ?? s.goodAt)}</span>;
 }
 
 export function Shell({ route, recorded = false, children }: { route: string; recorded?: boolean; children: ReactNode }) {
   const s = useShowcase(!recorded);
   const now = useNow();
-  const [theme, setTheme] = useState<"light" | "dark" | null>(null);
-  const [sysDark, setSysDark] = useState(false);
-  useEffect(() => {
-    try { const t = localStorage.getItem("pd-theme"); if (t === "light" || t === "dark") setTheme(t); } catch {}
-    const mq = matchMedia("(prefers-color-scheme: dark)");
-    setSysDark(mq.matches);
-    const on = () => setSysDark(mq.matches);
-    mq.addEventListener("change", on);
-    return () => mq.removeEventListener("change", on);
-  }, []);
-  const dark = theme ? theme === "dark" : sysDark;
-  const toggle = () => { const n = dark ? "light" : "dark"; setTheme(n); try { localStorage.setItem("pd-theme", n); } catch {} };
+  const [menu, setMenu] = useState(false);
+  const h = hold(s.data, now);
   return (
-    <div className="pd" data-theme={theme ?? undefined}>
-      <a className="skip" href="#main">Skip to content</a>
-      <div className="sbx" role="note"><span>PayPal sandbox · No real money</span>{recorded ? <span>Replay</span> : <Freshness s={s} now={now} />}</div>
-      <header className="hd">
-        <Link className="brand" href="/" aria-label="Pashadhara home"><img src="/mark.svg" alt="" width={34} height={34} />Pashadhara</Link>
-        <nav className="nav" aria-label="Main">
-          {NAV.map(([href, label]) => <Link key={href} href={href} aria-current={route === href.slice(1) ? "page" : undefined}>{label}</Link>)}
-        </nav>
-        <button className="tbtn" onClick={toggle} aria-pressed={dark}>{dark ? "Light view" : "Dark view"}</button>
+    <div className={cx("pd", fontVars)}>
+      <a className="skiplink" href="#main">Skip to content</a>
+      <div className="sbx" role="note"><span>PayPal sandbox. No real money moves.</span>{recorded ? <span className="rec-badge">Replay</span> : <Freshness s={s} now={now} />}</div>
+      <header className="top">
+        <div className="top-in">
+          <SiteBrand />
+          <div className="top-r"><SitePages route={`/${route}`} open={menu} onToggle={() => setMenu(value => !value)} onClose={() => setMenu(false)} /></div>
+        </div>
       </header>
       <main id="main" tabIndex={-1}>{children}</main>
-      <footer className="foot"><span>Pashadhara. One PayPal sandbox hold. No real money.</span><span><Link href="/collect">Settle</Link> · <Link href="/escrow">Escrow</Link> · <Link href="/developers">Connect an agent</Link> · <Link href="/proof">Evidence</Link></span></footer>
+      <SiteFooter honor={h?.honor ?? null} />
     </div>
   );
 }

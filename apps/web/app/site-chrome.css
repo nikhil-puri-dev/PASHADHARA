@@ -1,0 +1,6 @@
+:is(.pd,.v5) .top-r .pages-btn{display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 12px;font:14px var(--mono);color:var(--dim);border-radius:3px}
+:is(.pd,.v5) .top-r .pages-btn:hover{color:var(--bone);background:var(--n3)}
+:is(.pd,.v5) #site-pages{left:auto;right:var(--gut);width:min(270px,calc(100% - 2 * var(--gut)));max-height:calc(100dvh - 150px);overflow:auto;padding-inline:16px}
+:is(.pd,.v5) #site-pages a[aria-current="page"]{color:var(--tide)}
+:is(.pd,.v5) .footer-links{display:flex;flex-wrap:wrap;gap:0 4px;margin-top:8px}
+:is(.pd,.v5) .ft :is(.footer-links,.fine) a{display:inline-flex;align-items:center;min-height:44px;min-width:44px;padding:0 8px;color:var(--tide);font-size:14px}
